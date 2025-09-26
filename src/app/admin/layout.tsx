@@ -12,18 +12,14 @@ export default function AdminLayout({
   const router = useRouter();
 
   useEffect(() => {
-    // Si la autenticación ha terminado y el usuario no existe o no es 'docente'
     if (!loading && (!user || user.rol !== 'docente')) {
-      // Lo redirigimos a la página principal
-      router.push('/'); 
+      router.push('/');
     }
   }, [user, loading, router]);
 
-  // Mientras se verifica, muestra un mensaje de carga
   if (loading || !user || user.rol !== 'docente') {
     return <p className="text-center mt-12 text-text-secondary">Verificando acceso de administrador...</p>;
   }
 
-  // Si la verificación es exitosa, muestra el contenido de la página de admin
   return <>{children}</>;
 }
