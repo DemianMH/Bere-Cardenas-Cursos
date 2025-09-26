@@ -1,19 +1,21 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    // Esto le dice a Tailwind que busque clases en TODOS los archivos dentro de src/app
-    './src/app/**/*.{js,ts,jsx,tsx,mdx}' 
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {
       colors: {
-        'background': '#F8F8F8',
-        'primary-light': '#F4CFCC',
-        'primary-medium': '#EAA0AB',
-        'primary-dark': '#A87379',
+        'background': '#121212', // Negro profundo para el fondo
+        'surface': '#1E1E1E',    // Un gris muy oscuro para tarjetas y superficies
+        'primary': '#D4AF37',    // El dorado para acentos y botones
+        'text-primary': '#FFFFFF',  // Blanco puro para títulos y texto importante
+        'text-secondary': '#A9A9A9', // Gris claro para texto secundario
       },
       fontFamily: {
-        sans: ['var(--font-geist-sans)'],
+        sans: ['var(--font-montserrat)'],
       }
     },
   },

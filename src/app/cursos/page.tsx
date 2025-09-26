@@ -30,18 +30,17 @@ export default function CursosPage() {
 
   return (
     <div className="container mx-auto px-6 py-16">
-      <h1 className="text-4xl text-center font-bold text-primary-dark mb-12">Nuestros Cursos</h1>
+      <h1 className="text-4xl text-center font-bold text-primary mb-12">Nuestros Cursos</h1>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         {courses.map(course => (
-          <div key={course.id} className="bg-white p-6 rounded-lg shadow-lg flex flex-col justify-between">
+          <div key={course.id} className="bg-surface p-6 rounded-lg shadow-lg flex flex-col justify-between border border-transparent hover:border-primary transition-all">
             <div>
-              <h2 className="text-2xl font-bold text-primary-dark mb-2">{course.title}</h2>
-              <p className="text-gray-600 mb-4">{course.description}</p>
+              <h2 className="text-2xl font-bold text-primary mb-2">{course.title}</h2>
+              <p className="text-text-secondary mb-4">{course.description}</p>
             </div>
-            {/* ESTE ENLACE LLEVA AL VISUALIZADOR DEL ESTUDIANTE */}
             <Link href={`/cursos/${course.id}`}>
-              <span className="bg-primary-medium text-white py-2 px-4 rounded-full text-center hover:bg-primary-dark transition-colors w-full inline-block mt-4">
-                Ver Contenido del Curso
+              <span className="bg-primary text-background font-bold py-2 px-4 rounded-full text-center hover:opacity-90 w-full inline-block mt-4">
+                Ver Contenido
               </span>
             </Link>
           </div>
