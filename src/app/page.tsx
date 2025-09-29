@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { collection, getDocs, orderBy, query, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import Image from 'next/image';
 
 interface Course {
   id: string;
@@ -67,9 +68,15 @@ export default function Home() {
             </p>
           </div>
           <div className="text-center">
-            <div className="rounded-lg border border-primary w-80 h-80 mx-auto flex items-center justify-center">
-               <span className="text-text-secondary">Foto Profesional</span>
-            </div>
+            <div className="text-center">
+                        <Image
+                          src="/berenice.jpg"
+                          alt="Foto de Bere Cárdenas"
+                          width={400}
+                          height={400}
+                          className="rounded-lg object-cover mx-auto border-2 border-primary"
+                        />
+                      </div>
           </div>
         </div>
       </section>
