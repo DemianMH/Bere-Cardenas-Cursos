@@ -8,6 +8,7 @@ interface Course {
   id: string;
   title: string;
   description: string;
+  price?: number; // Añadimos el precio a la interfaz
 }
 
 export default function CursosPage() {
@@ -38,11 +39,19 @@ export default function CursosPage() {
               <h2 className="text-2xl font-bold text-primary mb-2">{course.title}</h2>
               <p className="text-text-secondary mb-4">{course.description}</p>
             </div>
-            <Link href={`/cursos/${course.id}`}>
-              <span className="bg-primary text-background font-bold py-2 px-4 rounded-full text-center hover:opacity-90 w-full inline-block mt-4">
-                Ver Contenido
-              </span>
-            </Link>
+            <div className="mt-auto">
+              {/* --- PRECIO MOSTRADO AQUÍ --- */}
+              {course.price && course.price > 0 && (
+                <p className="text-2xl font-bold text-primary mb-4 text-center">
+                  ${course.price} MXN
+                </p>
+              )}
+              <Link href={`/cursos/${course.id}`}>
+                <span className="bg-primary text-background font-bold py-2 px-4 rounded-full text-center hover:opacity-90 w-full inline-block">
+                  Ver Contenido
+                </span>
+              </Link>
+            </div>
           </div>
         ))}
       </div>

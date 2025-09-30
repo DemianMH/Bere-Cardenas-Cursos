@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { collection, query, getDocs, orderBy, doc, getDoc, updateDoc, arrayUnion, setDoc } from 'firebase/firestore';
+import { collection, query, getDocs, orderBy, doc, getDoc, setDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { CheckmarkIcon } from '@/app/components/CheckmarkIcon';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 interface Lesson {
   id: string;
@@ -18,10 +18,11 @@ interface Lesson {
 interface CourseDetails {
   title: string;
   description: string;
+  price?: number; 
 }
 
 export default function CoursePage({ params }: { params: { courseId: string } }) {
-  const { user, refreshUserData } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const [course, setCourse] = useState<CourseDetails | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -29,10 +30,11 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [loading, setLoading] = useState(true);
   const [isEnrolled, setIsEnrolled] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   useEffect(() => {
-    const isUserEnrolled = (user?.rol === 'docente') || (user?.cursosInscritos?.includes(params.courseId) || false);
-    setIsEnrolled(isUserEnrolled);
+    const checkEnrollment = user?.cursosInscritos?.includes(params.courseId) || user?.rol === 'docente';
+    setIsEnrolled(checkEnrollment);
     
     const fetchCourseContent = async () => {
       setLoading(true);
@@ -47,7 +49,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         const lessonsData = lessonsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Lesson[];
         setLessons(lessonsData);
 
-        if (isUserEnrolled && user) {
+        if (checkEnrollment && user) {
           const progressDocRef = doc(db, 'users', user.uid, 'progress', params.courseId);
           const progressSnap = await getDoc(progressDocRef);
           const userProgress = progressSnap.exists() ? progressSnap.data().completedLessons || [] : [];
@@ -65,21 +67,51 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     if (params.courseId) fetchCourseContent();
   }, [params.courseId, user]);
 
-  const handleEnrollment = async () => {
+  const handlePayment = async () => {
     if (!user) {
       router.push('/login');
       return;
     }
+    if (!course?.price || course.price <= 0) {
+        alert("El precio del curso no está definido. Contacta al administrador.");
+        return;
+    }
+    
+    setIsProcessingPayment(true);
+
     try {
-      const userDocRef = doc(db, 'users', user.uid);
-      await updateDoc(userDocRef, {
-        cursosInscritos: arrayUnion(params.courseId)
+      const functions = getFunctions();
+      const createPaymentPreference = httpsCallable(functions, 'createPaymentPreference');
+      
+      const result: any = await createPaymentPreference({ 
+        courseId: params.courseId,
+        title: course.title,
+        price: course.price
       });
-      await refreshUserData();
-      alert('¡Inscripción exitosa!');
+
+      const preferenceId = result.data.id;
+      if (preferenceId) {
+        const checkoutBtnContainer = document.querySelector('.checkout-btn');
+        if(checkoutBtnContainer) checkoutBtnContainer.innerHTML = '';
+        
+        const script = document.createElement("script");
+        script.src = "https://sdk.mercadopago.com/js/v2";
+        script.onload = () => {
+          const mp = new (window as any).MercadoPago('APP_USR-064fcb79-4b66-4476-8fc3-a93db866326e', { locale: 'es-MX' });
+          mp.checkout({
+            preference: { id: preferenceId },
+            render: { container: '.checkout-btn', label: 'Pagar ahora' }
+          });
+        };
+        document.body.appendChild(script);
+        
+        const originalButton = document.querySelector('.enroll-button');
+        if (originalButton) (originalButton as HTMLElement).style.display = 'none';
+      }
     } catch (error) {
-      console.error("Error en la inscripción:", error);
-      alert("Hubo un error al procesar tu inscripción.");
+      console.error("Error al crear la preferencia de pago:", error);
+      alert("Hubo un error al iniciar el proceso de pago. Inténtalo de nuevo.");
+      setIsProcessingPayment(false);
     }
   };
 
@@ -87,7 +119,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     if (!user || !selectedLesson || completedLessons.includes(selectedLesson.id)) return;
     const video = event.currentTarget;
     const percentageWatched = (video.currentTime / video.duration) * 100;
-
     if (percentageWatched > 80) {
       try {
         const progressDocRef = doc(db, 'users', user.uid, 'progress', params.courseId);
@@ -99,7 +130,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
       }
     }
   };
-
+  
   if (loading) return <p className="text-center mt-12 text-lg text-text-secondary">Cargando...</p>;
   if (!course) return <p className="text-center mt-12 text-lg text-text-secondary">Curso no encontrado.</p>;
 
@@ -116,30 +147,23 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                   <h2 className="text-2xl font-bold text-text-primary mb-4 px-2 pt-2">{selectedLesson.title}</h2>
                   <video key={selectedLesson.id} controls className="w-full h-full rounded-b-lg" src={selectedLesson.videoUrl} preload="metadata" onTimeUpdate={handleVideoProgress} />
                 </div>
-                {selectedLesson.textContent && (
-                  <div className="prose max-w-none mb-6 text-text-secondary">
-                    <h3 className="text-2xl font-bold text-primary mb-2">Material de Lectura</h3>
-                    <p>{selectedLesson.textContent}</p>
-                  </div>
-                )}
-                {selectedLesson.supportMaterialUrl && (
-                  <div className="mb-6">
-                    <h3 className="text-2xl font-bold text-primary mb-2">Material de Apoyo</h3>
-                    <a href={selectedLesson.supportMaterialUrl} target="_blank" rel="noopener noreferrer"
-                      className="bg-primary text-background font-bold py-2 px-4 rounded-full hover:opacity-90 inline-block">Descargar Manual</a>
-                  </div>
-                )}
-                <div>
-                  <h3 className="text-2xl font-bold text-primary mb-2">¿Tienes alguna duda?</h3>
-                  <textarea className="w-full mt-2 p-2 border border-gray-700 bg-background rounded-md text-text-primary focus:border-primary focus:outline-none" rows={4} placeholder="Escribe tu pregunta aquí..."></textarea>
-                  <button className="mt-2 bg-primary text-background font-bold py-2 px-4 rounded-full hover:opacity-90">Enviar Pregunta</button>
-                </div>
               </div>
             ) : (
               <div className="bg-background border border-primary/50 p-8 rounded-lg text-center">
-                <h2 className="text-2xl font-bold text-primary mb-4">Inscríbete para Acceder al Contenido Completo</h2>
-                <button onClick={handleEnrollment} className="bg-primary text-background font-bold py-3 px-8 rounded-full text-lg hover:opacity-90 transition-opacity">
-                  Inscribirme Ahora
+                <h2 className="text-2xl font-bold text-primary mb-2">Inscríbete para Acceder al Contenido Completo</h2>
+                {/* --- PRECIO MOSTRADO AQUÍ --- */}
+                {course.price && course.price > 0 && (
+                  <p className="text-3xl font-bold text-white my-4">
+                    ${course.price} MXN
+                  </p>
+                )}
+                <div className="checkout-btn mb-4"></div>
+                <button 
+                  onClick={handlePayment} 
+                  disabled={isProcessingPayment}
+                  className="enroll-button bg-primary text-background font-bold py-3 px-8 rounded-full text-lg hover:opacity-90 transition-opacity disabled:bg-gray-500 disabled:cursor-not-allowed"
+                >
+                  {isProcessingPayment ? 'Procesando...' : 'Inscribirme Ahora'}
                 </button>
               </div>
             )}

@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 export default function EditarCursoPage({ params }: { params: { courseId: string } }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [price, setPrice] = useState(''); // Estado para el precio
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -20,6 +21,7 @@ export default function EditarCursoPage({ params }: { params: { courseId: string
           const courseData = courseSnap.data();
           setTitle(courseData.title);
           setDescription(courseData.description);
+          setPrice(courseData.price || ''); // Cargamos el precio
         } else {
           setError('Este curso no existe.');
         }
@@ -34,12 +36,17 @@ export default function EditarCursoPage({ params }: { params: { courseId: string
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (Number(price) <= 0) {
+      setError('El precio debe ser un número mayor a cero.');
+      return;
+    }
     setLoading(true);
     try {
       const courseDocRef = doc(db, 'courses', params.courseId);
       await updateDoc(courseDocRef, {
         title,
-        description
+        description,
+        price: Number(price) // Actualizamos el precio
       });
       alert('¡Curso actualizado con éxito!');
       router.push('/admin/cursos');
@@ -79,6 +86,20 @@ export default function EditarCursoPage({ params }: { params: { courseId: string
               required
             ></textarea>
           </div>
+          {/* --- CAMPO DE PRECIO AÑADIDO --- */}
+          <div className="mb-6">
+            <label className="block text-text-secondary font-bold mb-2" htmlFor="price">Precio (MXN)*</label>
+            <input 
+              id="price" 
+              type="number" 
+              placeholder="Ej: 1500" 
+              value={price} 
+              onChange={(e) => setPrice(e.target.value)} 
+              className="bg-background shadow border border-gray-700 rounded w-full py-2 px-3 text-text-primary focus:outline-none focus:border-primary" 
+              required 
+            />
+          </div>
+
           {error && <p className="text-red-500 text-xs italic mb-4">{error}</p>}
           <button 
             type="submit" 
