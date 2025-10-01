@@ -69,10 +69,10 @@ export const manageUser = onCall({ cors: true }, async (request) => {
   }
 
   // --- CAMBIO CLAVE: Verificamos el rol directamente desde Firestore ---
-  const userDoc = await db.collection('users').doc(uid).get();
-  if (!userDoc.exists || userDoc.data()?.rol !== 'docente') {
-    throw new HttpsError('permission-denied', 'Solo los docentes pueden realizar esta acción.');
-  }
+const userDoc = await db.collection('users').doc(uid).get();
+if (!userDoc.exists || userDoc.data()?.rol !== 'docente') {
+  throw new HttpsError('permission-denied', 'Solo los docentes pueden realizar esta acción.');
+}
 
   const { action, data } = request.data;
 

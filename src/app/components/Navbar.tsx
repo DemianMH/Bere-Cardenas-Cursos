@@ -65,11 +65,6 @@ const Navbar = () => {
             priority 
           />
         </Link>
-        
-        {/* ---- HERRAMIENTA DE DEPURACIÓN TEMPORAL ---- */}
-        {user && <p className="absolute left-1/2 -translate-x-1/2 text-xs bg-red-500 text-white px-2 py-1 rounded">ROL DETECTADO: {user.rol || 'Ninguno'}</p>}
-        {/* ------------------------------------------- */}
-
         {/* Links para Desktop */}
         <div className="hidden md:flex items-center space-x-6">
           <NavLinks />
