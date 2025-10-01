@@ -1,9 +1,7 @@
-// RUTA: src/app/admin/alumnos/page.tsx
-
 "use client";
 import { useEffect, useState } from 'react';
 import { collection, getDocs, query } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, app } from '@/lib/firebase';
 import Link from 'next/link';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useAuth } from '@/context/AuthContext';
@@ -22,15 +20,13 @@ export default function AdminAlumnosPage() {
 
   useEffect(() => {
     const fetchUsers = async () => {
-      // Solo ejecuta la función si el usuario ha cargado y es docente
       if (!user || user.rol !== 'docente') {
-        // Si no es docente, simplemente no hacemos nada. El layout ya lo protege.
         if (!authLoading) setLoading(false);
         return; 
       }
 
       try {
-        const functions = getFunctions(); // Obtenemos la instancia de functions aquí
+        const functions = getFunctions(app, 'us-central1');
         const manageUser = httpsCallable(functions, 'manageUser');
         
         const authUsersResult: any = await manageUser({ action: 'listUsers' });
@@ -63,7 +59,6 @@ export default function AdminAlumnosPage() {
       }
     };
     
-    // Esperamos a que la autenticación termine de cargar antes de ejecutar
     if (!authLoading) {
         fetchUsers();
     }
