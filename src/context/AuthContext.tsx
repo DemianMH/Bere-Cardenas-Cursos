@@ -1,3 +1,5 @@
+// RUTA: src/context/AuthContext.tsx
+
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
@@ -8,59 +10,72 @@ import { auth, db } from '@/lib/firebase';
 export interface UserProfile extends FirebaseUser {
   rol?: string;
   cursosInscritos?: string[];
+  nombre?: string;
 }
 
 interface AuthContextType {
   user: UserProfile | null;
   loading: boolean;
-  refreshUserData: () => Promise<void>; // <-- NUEVA FUNCIÓN
+  refreshUserData: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ 
-  user: null, 
-  loading: true, 
-  refreshUserData: async () => {} 
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  loading: true,
+  refreshUserData: async () => {}
 });
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchUserData = useCallback(async (firebaseUser: FirebaseUser | null) => {
-    if (firebaseUser) {
+  const fetchFullUserProfile = useCallback(async (firebaseUser: FirebaseUser | null, forceRefresh: boolean = false) => {
+    if (!firebaseUser) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const tokenResult = await firebaseUser.getIdTokenResult(forceRefresh);
+      const claims = tokenResult.claims;
+
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        setUser({
-          ...firebaseUser,
-          rol: userData.rol,
-          cursosInscritos: userData.cursosInscritos || [],
-        });
-      } else {
-        setUser(firebaseUser);
-      }
-    } else {
-      setUser(null);
+      const firestoreData = userDoc.exists() ? userDoc.data() : {};
+
+      setUser({
+        ...firebaseUser,
+        nombre: firestoreData.nombre || firebaseUser.displayName || '',
+        cursosInscritos: firestoreData.cursosInscritos || [],
+        rol: (claims.rol as string) || (firestoreData.rol as string) || undefined,
+      });
+
+    } catch (error) {
+      console.error("Error al obtener el perfil completo del usuario:", error);
+      setUser(firebaseUser);
+    } finally {
+      setLoading(false);
     }
   }, []);
-  
+
   useEffect(() => {
-    setLoading(true);
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      await fetchUserData(firebaseUser);
-      setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      fetchFullUserProfile(firebaseUser);
     });
     return () => unsubscribe();
-  }, [fetchUserData]);
+  }, [fetchFullUserProfile]);
 
   const refreshUserData = useCallback(async () => {
-    await fetchUserData(auth.currentUser);
-  }, [fetchUserData]);
+    if (auth.currentUser) {
+      await fetchFullUserProfile(auth.currentUser, true);
+    }
+  }, [fetchFullUserProfile]);
 
   return (
     <AuthContext.Provider value={{ user, loading, refreshUserData }}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

@@ -1,0 +1,46 @@
+[debug] [2025-10-01T19:14:42.487Z] ----------------------------------------------------------------------
+[debug] [2025-10-01T19:14:42.491Z] Command:       C:\nvm4w\nodejs\node.exe C:\Users\Admin System\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only functions
+[debug] [2025-10-01T19:14:42.491Z] CLI Version:   14.17.0
+[debug] [2025-10-01T19:14:42.492Z] Platform:      win32
+[debug] [2025-10-01T19:14:42.492Z] Node Version:  v20.19.5
+[debug] [2025-10-01T19:14:42.492Z] Time:          Wed Oct 01 2025 13:14:42 GMT-0600 (Central Standard Time)
+[debug] [2025-10-01T19:14:42.493Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-10-01T19:14:42.656Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-10-01T19:14:42.656Z] > authorizing via signed-in user (za19011250@zapopan.tecmm.edu.mx)
+[debug] [2025-10-01T19:14:42.657Z] [iam] checking project proyecto-bere for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]
+[debug] [2025-10-01T19:14:42.657Z] Checked if tokens are valid: false, expires at: 1759346902273
+[debug] [2025-10-01T19:14:42.658Z] Checked if tokens are valid: false, expires at: 1759346902273
+[debug] [2025-10-01T19:14:42.658Z] > refreshing access token with scopes: []
+[debug] [2025-10-01T19:14:42.662Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2025-10-01T19:14:42.663Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-10-01T19:14:42.847Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2025-10-01T19:14:42.847Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-10-01T19:14:42.855Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/proyecto-bere:testIamPermissions [none]
+[debug] [2025-10-01T19:14:42.856Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/proyecto-bere:testIamPermissions x-goog-quota-user=projects/proyecto-bere
+[debug] [2025-10-01T19:14:42.856Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/proyecto-bere:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2025-10-01T19:14:43.292Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/proyecto-bere:testIamPermissions 200
+[debug] [2025-10-01T19:14:43.292Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/proyecto-bere:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2025-10-01T19:14:43.293Z] Checked if tokens are valid: true, expires at: 1759349681847
+[debug] [2025-10-01T19:14:43.293Z] Checked if tokens are valid: true, expires at: 1759349681847
+[debug] [2025-10-01T19:14:43.293Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/proyecto-bere/serviceAccounts/proyecto-bere@appspot.gserviceaccount.com:testIamPermissions [none]
+[debug] [2025-10-01T19:14:43.293Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/proyecto-bere/serviceAccounts/proyecto-bere@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2025-10-01T19:14:43.736Z] <<< [apiv2][status] POST https://iam.googleapis.com/v1/projects/proyecto-bere/serviceAccounts/proyecto-bere@appspot.gserviceaccount.com:testIamPermissions 200
+[debug] [2025-10-01T19:14:43.736Z] <<< [apiv2][body] POST https://iam.googleapis.com/v1/projects/proyecto-bere/serviceAccounts/proyecto-bere@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[info] 
+[info] === Deploying to 'proyecto-bere'...
+[info] 
+[info] i  deploying functions 
+[info] +  functions: Finished running predeploy script. 
+[debug] [2025-10-01T19:14:43.739Z] Checked if tokens are valid: true, expires at: 1759349681847
+[debug] [2025-10-01T19:14:43.739Z] Checked if tokens are valid: true, expires at: 1759349681847
+[debug] [2025-10-01T19:14:43.740Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/proyecto-bere [none]
+[debug] [2025-10-01T19:14:43.847Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/proyecto-bere 200
+[debug] [2025-10-01T19:14:43.847Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/proyecto-bere {"projectNumber":"627127896455","projectId":"proyecto-bere","lifecycleState":"ACTIVE","name":"proyecto-bere","labels":{"firebase":"enabled","firebase-core":"disabled"},"createTime":"2025-09-24T20:46:22.961490Z","parent":{"type":"organization","id":"796959426050"}}
+[info] i  functions: preparing codebase default for deployment 
+[info] i  functions: ensuring required API cloudfunctions.googleapis.com is enabled... 
+[info] i  functions: ensuring required API cloudbuild.googleapis.com is enabled... 
+[info] i  artifactregistry: ensuring required API artifactregistry.googleapis.com is enabled... 
+[debug] [2025-10-01T19:14:43.849Z] Checked if tokens are valid: true, expires at: 1759349681847
+[debug] [2025-10-01T19:14:43.849Z] Checked if tokens are valid: true, expires at: 1759349681847
+[debug] [2025-10-01T19:14:43.849Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/proyecto-bere/adminSdkConfig [none]

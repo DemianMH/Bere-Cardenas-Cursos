@@ -1,3 +1,5 @@
+// RUTA: src/app/components/Navbar.tsx
+
 "use client";
 
 import Image from 'next/image';
@@ -25,7 +27,7 @@ const Navbar = () => {
       <nav className="container mx-auto px-6 py-3 flex justify-between items-center">
         <Link href="/">
           <Image 
-            src="/logo_blanco.png" // CAMBIO A LOGO BLANCO
+            src="/logo_blanco.png"
             alt="Bere Cárdenas Logo" 
             width={200} 
             height={50} 
@@ -41,14 +43,21 @@ const Navbar = () => {
           {user && user.rol === 'docente' && (
             <>
               <Link href="/admin/cursos" className="font-bold text-primary hover:text-text-primary transition-colors">
-                Gestionar Cursos
+                Cursos
+              </Link>
+               {/* --- NUEVO ENLACE --- */}
+              <Link href="/admin/alumnos" className="font-bold text-primary hover:text-text-primary transition-colors">
+                Alumnos
+              </Link>
+              <Link href="/admin/solicitudes" className="font-bold text-primary hover:text-text-primary transition-colors">
+                Solicitudes
               </Link>
               <Link href="/admin/preguntas" className="font-bold text-primary hover:text-text-primary transition-colors">
-                Ver Preguntas
+                Preguntas
               </Link>
             </>
           )}
-          <Link href="/acerca-de" className="text-text-secondary hover:text-primary transition-colors">Acerca de Nosotros</Link>
+          <Link href="/acerca-de" className="text-text-secondary hover:text-primary transition-colors">Acerca de</Link>
           <Link href="/contacto" className="text-text-secondary hover:text-primary transition-colors">Contacto</Link>
         </div>
         <div>
