@@ -28,9 +28,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchUserData = useCallback(async (firebaseUser: FirebaseUser | null) => {
     if (firebaseUser) {
-      // Forzar la actualización del token para obtener los custom claims
       const idTokenResult = await firebaseUser.getIdTokenResult(true);
-      const userRol = idTokenResult.claims.rol as string || 'estudiante';
+      const userRol = (idTokenResult.claims.rol as string) || 'estudiante';
 
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
@@ -71,3 +70,4 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 export const useAuth = () => {
   return useContext(AuthContext);
 };
+
