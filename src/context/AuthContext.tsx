@@ -1,5 +1,3 @@
-// RUTA: src/context/AuthContext.tsx (VERSIÓN FINAL Y SIMPLIFICADA)
-
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
@@ -30,18 +28,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchUserData = useCallback(async (firebaseUser: FirebaseUser | null) => {
     if (firebaseUser) {
+      // Forzar la actualización del token para obtener los custom claims
+      const idTokenResult = await firebaseUser.getIdTokenResult(true);
+      const userRol = idTokenResult.claims.rol as string || 'estudiante';
+
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        setUser({
-          ...firebaseUser,
-          rol: userData.rol, // Leemos el rol directamente de Firestore
-          cursosInscritos: userData.cursosInscritos || [],
-        });
-      } else {
-        setUser(firebaseUser);
-      }
+      
+      const firestoreData = userDoc.exists() ? userDoc.data() : {};
+
+      setUser({
+        ...firebaseUser,
+        rol: userRol,
+        cursosInscritos: firestoreData.cursosInscritos || [],
+      });
     } else {
       setUser(null);
     }

@@ -1,4 +1,4 @@
-// RUTA: functions/src/index.ts (Versión Final y Correcta)
+// RUTA: functions/src/index.ts
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onRequest } from "firebase-functions/v2/https";
@@ -12,11 +12,26 @@ const db = admin.firestore();
 
 const mercadopagoAccessToken = defineString("MERCADOPAGO_ACCESS_TOKEN");
 
-interface CourseData {
-  courseId: string;
-  title: string;
-  price: number;
-}
+// --- NUEVA FUNCIÓN PARA ASIGNAR ROL DE DOCENTE ---
+export const addAdminRole = onCall({ cors: true }, async (request) => {
+  // Esta función es para uso administrativo. En un futuro se puede proteger.
+  const { email } = request.data;
+  if (!email) {
+    throw new HttpsError('invalid-argument', 'Se necesita un email.');
+  }
+  try {
+    const user = await admin.auth().getUserByEmail(email);
+    await admin.auth().setCustomUserClaims(user.uid, { rol: 'docente' });
+    // También actualizamos Firestore para consistencia
+    await db.collection('users').doc(user.uid).set({ rol: 'docente' }, { merge: true });
+    logger.info(`Rol 'docente' asignado a ${email}`);
+    return { message: `Éxito! El rol 'docente' fue asignado a ${email}` };
+  } catch (error) {
+    logger.error("Error al asignar rol de admin:", error);
+    throw new HttpsError('internal', 'Error al asignar el rol.');
+  }
+});
+
 
 export const createPaymentPreference = onCall({ cors: true }, async (request) => {
   if (!request.auth) {
@@ -62,17 +77,12 @@ export const paymentWebhook = onRequest(async (request, response) => {
   response.status(200).send("OK");
 });
 
+// --- FUNCIÓN MANAGEUSER MODIFICADA ---
 export const manageUser = onCall({ cors: true }, async (request) => {
-  const uid = request.auth?.uid;
-  if (!uid) {
-    throw new HttpsError('unauthenticated', 'Debes iniciar sesión para realizar esta acción.');
+  // Ahora verificamos el custom claim 'rol' en el token
+  if (request.auth?.token.rol !== 'docente') {
+    throw new HttpsError('permission-denied', 'Solo los docentes pueden realizar esta acción.');
   }
-
-  // --- CAMBIO CLAVE: Verificamos el rol directamente desde Firestore ---
-const userDoc = await db.collection('users').doc(uid).get();
-if (!userDoc.exists || userDoc.data()?.rol !== 'docente') {
-  throw new HttpsError('permission-denied', 'Solo los docentes pueden realizar esta acción.');
-}
 
   const { action, data } = request.data;
 
