@@ -8,10 +8,13 @@ import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { AiOutlineMenu, AiOutlineClose } from 'react-icons/ai';
 
 const Navbar = () => {
   const { user } = useAuth();
   const router = useRouter();
+  const [navIsOpen, setNavIsOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -21,6 +24,34 @@ const Navbar = () => {
       console.error("Error al cerrar sesión:", error);
     }
   };
+
+  const NavLinks = () => (
+    <>
+      <Link href="/" className="py-2 text-text-secondary hover:text-primary transition-colors" onClick={() => setNavIsOpen(false)}>Inicio</Link>
+      <Link href="/cursos" className="py-2 text-text-secondary hover:text-primary transition-colors" onClick={() => setNavIsOpen(false)}>Cursos</Link>
+      {user && (
+        <Link href="/mis-cursos" className="py-2 text-text-secondary hover:text-primary transition-colors" onClick={() => setNavIsOpen(false)}>Mis Cursos</Link>
+      )}
+      {user && user.rol === 'docente' && (
+        <>
+          <Link href="/admin/cursos" className="py-2 font-bold text-primary hover:text-text-primary transition-colors" onClick={() => setNavIsOpen(false)}>
+            Cursos
+          </Link>
+          <Link href="/admin/alumnos" className="py-2 font-bold text-primary hover:text-text-primary transition-colors" onClick={() => setNavIsOpen(false)}>
+            Alumnos
+          </Link>
+          <Link href="/admin/solicitudes" className="py-2 font-bold text-primary hover:text-text-primary transition-colors" onClick={() => setNavIsOpen(false)}>
+            Solicitudes
+          </Link>
+          <Link href="/admin/preguntas" className="py-2 font-bold text-primary hover:text-text-primary transition-colors" onClick={() => setNavIsOpen(false)}>
+            Preguntas
+          </Link>
+        </>
+      )}
+      <Link href="/acerca-de" className="py-2 text-text-secondary hover:text-primary transition-colors" onClick={() => setNavIsOpen(false)}>Acerca de</Link>
+      <Link href="/contacto" className="py-2 text-text-secondary hover:text-primary transition-colors" onClick={() => setNavIsOpen(false)}>Contacto</Link>
+    </>
+  );
 
   return (
     <header className="bg-surface shadow-md sticky top-0 z-50">
@@ -34,33 +65,18 @@ const Navbar = () => {
             priority 
           />
         </Link>
+        
+        {/* ---- HERRAMIENTA DE DEPURACIÓN TEMPORAL ---- */}
+        {user && <p className="absolute left-1/2 -translate-x-1/2 text-xs bg-red-500 text-white px-2 py-1 rounded">ROL DETECTADO: {user.rol || 'Ninguno'}</p>}
+        {/* ------------------------------------------- */}
+
+        {/* Links para Desktop */}
         <div className="hidden md:flex items-center space-x-6">
-          <Link href="/" className="text-text-secondary hover:text-primary transition-colors">Inicio</Link>
-          <Link href="/cursos" className="text-text-secondary hover:text-primary transition-colors">Cursos</Link>
-          {user && (
-            <Link href="/mis-cursos" className="text-text-secondary hover:text-primary transition-colors">Mis Cursos</Link>
-          )}
-          {user && user.rol === 'docente' && (
-            <>
-              <Link href="/admin/cursos" className="font-bold text-primary hover:text-text-primary transition-colors">
-                Cursos
-              </Link>
-               {/* --- NUEVO ENLACE --- */}
-              <Link href="/admin/alumnos" className="font-bold text-primary hover:text-text-primary transition-colors">
-                Alumnos
-              </Link>
-              <Link href="/admin/solicitudes" className="font-bold text-primary hover:text-text-primary transition-colors">
-                Solicitudes
-              </Link>
-              <Link href="/admin/preguntas" className="font-bold text-primary hover:text-text-primary transition-colors">
-                Preguntas
-              </Link>
-            </>
-          )}
-          <Link href="/acerca-de" className="text-text-secondary hover:text-primary transition-colors">Acerca de</Link>
-          <Link href="/contacto" className="text-text-secondary hover:text-primary transition-colors">Contacto</Link>
+          <NavLinks />
         </div>
-        <div>
+
+        {/* Botones de Sesión */}
+        <div className="hidden md:block">
           {user ? (
             <button
               onClick={handleLogout}
@@ -74,7 +90,37 @@ const Navbar = () => {
             </Link>
           )}
         </div>
+
+        {/* Botón de Menú Móvil */}
+        <div className="md:hidden">
+          <button onClick={() => setNavIsOpen(!navIsOpen)}>
+            {navIsOpen ? <AiOutlineClose size={25} /> : <AiOutlineMenu size={25} />}
+          </button>
+        </div>
       </nav>
+
+      {/* Panel de Menú Móvil */}
+      {navIsOpen && (
+        <div className="md:hidden bg-surface absolute w-full left-0">
+          <div className="px-6 pt-2 pb-6 flex flex-col items-center space-y-4">
+            <NavLinks />
+            <div className="mt-4">
+              {user ? (
+                <button
+                  onClick={handleLogout}
+                  className="bg-surface text-text-primary border border-primary py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors"
+                >
+                  Cerrar Sesión
+                </button>
+              ) : (
+                <Link href="/login" onClick={() => setNavIsOpen(false)} className="bg-primary text-background font-bold py-2 px-4 rounded-full hover:opacity-90 transition-opacity">
+                  Iniciar Sesión
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 };
