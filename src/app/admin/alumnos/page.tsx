@@ -6,6 +6,7 @@ import { collection, getDocs, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Link from 'next/link';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { useAuth } from '@/context/AuthContext';
 
 interface UserData {
   uid: string;
@@ -15,58 +16,65 @@ interface UserData {
 }
 
 export default function AdminAlumnosPage() {
+  const { user, loading: authLoading } = useAuth();
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchUsers = async () => {
-      setLoading(true);
+      // Solo ejecuta la función si el usuario ha cargado y es docente
+      if (!user || user.rol !== 'docente') {
+        // Si no es docente, simplemente no hacemos nada. El layout ya lo protege.
+        if (!authLoading) setLoading(false);
+        return; 
+      }
+
       try {
-        const functions = getFunctions();
+        const functions = getFunctions(); // Obtenemos la instancia de functions aquí
         const manageUser = httpsCallable(functions, 'manageUser');
         
-        // 1. Obtener la lista de usuarios de Firebase Auth
         const authUsersResult: any = await manageUser({ action: 'listUsers' });
         if (!authUsersResult.data.success) {
           throw new Error('No se pudo obtener la lista de usuarios de Auth.');
         }
         const authUsers = authUsersResult.data.users;
 
-        // 2. Obtener los datos de Firestore (para los cursos)
         const firestoreUsersSnapshot = await getDocs(query(collection(db, 'users')));
         const firestoreUsersMap = new Map<string, UserData>();
         firestoreUsersSnapshot.forEach(doc => {
           firestoreUsersMap.set(doc.id, doc.data() as UserData);
         });
 
-        // 3. Combinar los datos
         const combinedUsers = authUsers.map((authUser: any) => {
           const firestoreUser = firestoreUsersMap.get(authUser.uid);
           return {
             ...authUser,
-            nombre: firestoreUser?.nombre || authUser.email, // Usar nombre de Firestore si existe
+            nombre: firestoreUser?.nombre || authUser.email,
             cursosInscritos: firestoreUser?.cursosInscritos || [],
           };
         });
 
         setUsers(combinedUsers);
-      } catch (error) {
-        console.error("Error al cargar los alumnos:", error);
-        alert('No se pudieron cargar los alumnos.');
+      } catch (error: any) {
+        console.error("Error al cargar los alumnos:", error.message);
+        alert(`Error al cargar alumnos: ${error.message}`);
       } finally {
         setLoading(false);
       }
     };
-    fetchUsers();
-  }, []);
+    
+    // Esperamos a que la autenticación termine de cargar antes de ejecutar
+    if (!authLoading) {
+        fetchUsers();
+    }
+  }, [user, authLoading]);
 
-  if (loading) return <p className="text-center mt-12 text-lg">Cargando alumnos...</p>;
+  if (loading || authLoading) return <p className="text-center mt-12 text-lg">Cargando alumnos...</p>;
 
   return (
     <div className="container mx-auto px-6 py-12">
       <div className="flex justify-between items-center mb-10">
         <h1 className="text-4xl font-bold text-primary">Gestionar Alumnos</h1>
-        {/* Futuro botón para crear nuevo alumno */}
       </div>
       <div className="bg-surface p-6 rounded-lg shadow-lg overflow-x-auto">
         <table className="w-full text-left">
@@ -79,18 +87,24 @@ export default function AdminAlumnosPage() {
             </tr>
           </thead>
           <tbody>
-            {users.map(user => (
-              <tr key={user.uid} className="border-b border-gray-700 hover:bg-background">
-                <td className="p-4">{user.nombre}</td>
-                <td className="p-4">{user.email}</td>
-                <td className="p-4">{user.cursosInscritos?.length || 0}</td>
-                <td className="p-4">
-                  <Link href={`/admin/alumnos/${user.uid}`}>
-                    <span className="text-primary hover:underline">Editar</span>
-                  </Link>
-                </td>
-              </tr>
-            ))}
+            {users.length > 0 ? (
+              users.map(user => (
+                <tr key={user.uid} className="border-b border-gray-700 hover:bg-background">
+                  <td className="p-4">{user.nombre}</td>
+                  <td className="p-4">{user.email}</td>
+                  <td className="p-4">{user.cursosInscritos?.length || 0}</td>
+                  <td className="p-4">
+                    <Link href={`/admin/alumnos/${user.uid}`}>
+                      <span className="text-primary hover:underline">Editar</span>
+                    </Link>
+                  </td>
+                </tr>
+              ))
+            ) : (
+                <tr>
+                    <td colSpan={4} className="text-center p-8 text-text-secondary">No se encontraron alumnos.</td>
+                </tr>
+            )}
           </tbody>
         </table>
       </div>

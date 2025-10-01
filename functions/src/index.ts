@@ -1,4 +1,4 @@
-// RUTA: functions/src/index.ts (VERSÍON FINAL Y SIMPLIFICADA)
+// RUTA: functions/src/index.ts (Versión Final y Correcta)
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onRequest } from "firebase-functions/v2/https";
@@ -22,19 +22,13 @@ export const createPaymentPreference = onCall({ cors: true }, async (request) =>
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
   }
-
-  const client = new MercadoPagoConfig({
-    accessToken: mercadopagoAccessToken.value(),
-  });
-
+  const client = new MercadoPagoConfig({ accessToken: mercadopagoAccessToken.value() });
   const { courseId, title, price } = request.data;
   const userId = request.auth.uid;
   const userEmail = request.auth.token.email;
-
   if (!userEmail) {
     throw new HttpsError("invalid-argument", "El usuario no tiene un email asociado.");
   }
-
   try {
     const preference = new Preference(client);
     const result = await preference.create({
@@ -51,7 +45,6 @@ export const createPaymentPreference = onCall({ cors: true }, async (request) =>
         notification_url: `https://us-central1-proyecto-bere.cloudfunctions.net/paymentWebhook`,
       },
     });
-
     logger.info(`Preferencia creada con ID: ${result.id}`);
     return { id: result.id };
   } catch (error) {
@@ -77,10 +70,9 @@ export const manageUser = onCall({ cors: true }, async (request) => {
 
   // --- CAMBIO CLAVE: Verificamos el rol directamente desde Firestore ---
   const userDoc = await db.collection('users').doc(uid).get();
-  if (userDoc.data()?.rol !== 'docente') {
+  if (!userDoc.exists || userDoc.data()?.rol !== 'docente') {
     throw new HttpsError('permission-denied', 'Solo los docentes pueden realizar esta acción.');
   }
-  // --- FIN DEL CAMBIO ---
 
   const { action, data } = request.data;
 
@@ -95,7 +87,6 @@ export const manageUser = onCall({ cors: true }, async (request) => {
         }));
         return { success: true, users };
       }
-      
       case 'updateUser': {
         const { uid, email, nombre, password } = data;
         const updateData: { email?: string; displayName?: string; password?: string } = {};
@@ -112,15 +103,24 @@ export const manageUser = onCall({ cors: true }, async (request) => {
         }
         return { success: true, message: 'Usuario actualizado correctamente.' };
       }
-
-      // Los casos de createUser y deleteUser siguen igual
       case 'createUser': {
-        // ... (código sin cambios)
+        const { email, password, nombre } = data;
+        const userRecord = await admin.auth().createUser({ email, password, displayName: nombre });
+        await db.collection('users').doc(userRecord.uid).set({
+          uid: userRecord.uid,
+          nombre: nombre,
+          email: email,
+          rol: 'estudiante',
+          cursosInscritos: []
+        });
+        return { success: true, user: { uid: userRecord.uid, email, nombre } };
       }
       case 'deleteUser': {
-        // ... (código sin cambios)
+        const { uid } = data;
+        await admin.auth().deleteUser(uid);
+        await db.collection('users').doc(uid).delete();
+        return { success: true, message: 'Usuario eliminado correctamente.' };
       }
-
       default:
         throw new HttpsError('invalid-argument', 'Acción no válida.');
     }

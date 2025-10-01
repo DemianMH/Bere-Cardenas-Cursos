@@ -1,11 +1,10 @@
-// src/lib/firebase.ts
+// RUTA: src/lib/firebase.ts
 
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage"; // <-- AÑADIR ESTA LÍNEA
+import { getStorage } from "firebase/storage";
 
-// ... (tu firebaseConfig se mantiene igual)
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -20,6 +19,6 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 const auth = getAuth(app);
 const db = getFirestore(app);
-const storage = getStorage(app); // <-- AÑADIR ESTA LÍNEA
+const storage = getStorage(app);
 
-export { app, auth, db, storage }; // <-- AÑADIR "storage"
+export { app, auth, db, storage };

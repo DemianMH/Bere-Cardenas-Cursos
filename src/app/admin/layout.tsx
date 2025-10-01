@@ -1,3 +1,5 @@
+// RUTA: src/app/admin/layout.tsx
+
 "use client";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -17,9 +19,13 @@ export default function AdminLayout({
     }
   }, [user, loading, router]);
 
-  if (loading || !user || user.rol !== 'docente') {
-    return <p className="text-center mt-12 text-text-secondary">Verificando acceso de administrador...</p>;
+  if (loading) {
+    return <p className="text-center mt-12 text-text-secondary">Verificando acceso...</p>;
   }
 
-  return <>{children}</>;
+  if (user && user.rol === 'docente') {
+    return <>{children}</>;
+  }
+  
+  return <p className="text-center mt-12 text-text-secondary">Acceso denegado. Redirigiendo...</p>;
 }
