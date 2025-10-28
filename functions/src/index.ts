@@ -1,14 +1,28 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
-import { MercadoPagoConfig, Preference } from "mercadopago";
+import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
 import { defineString } from "firebase-functions/params";
+import cors from "cors"; // <--- IMPORTACIÓN CORREGIDA (default import)
 
-admin.initializeApp();
+try {
+  admin.initializeApp();
+} catch (e) {
+  // logger.warn("Firebase Admin SDK ya inicializado."); // Puedes descomentar si quieres ver este log
+}
 const db = admin.firestore();
 
 const mercadopagoAccessToken = defineString("MERCADOPAGO_ACCESS_TOKEN");
+
+// Configura cors explícitamente
+const corsOptions: cors.CorsOptions = {
+    origin: ["https://berecardenascosmetologia.com", /http:\/\/localhost:\d+/], // Añadir http para localhost
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+};
+// Crear middleware C O R R E C T A M E N T E
+const corsMiddleware = cors(corsOptions);
 
 interface Coupon {
   id?: string;
@@ -18,252 +32,331 @@ interface Coupon {
   createdAt?: admin.firestore.Timestamp;
 }
 
-export const addAdminRole = onCall({ cors: true }, async (request) => {
-  const { email } = request.data;
-  if (!email) {
-    throw new HttpsError('invalid-argument', 'Se necesita un email.');
-  }
-  try {
-    const user = await admin.auth().getUserByEmail(email);
-    await admin.auth().setCustomUserClaims(user.uid, { rol: 'docente' });
-    await db.collection('users').doc(user.uid).set({ rol: 'docente' }, { merge: true });
-    logger.info(`Rol 'docente' asignado a ${email}`);
-    return { message: `Éxito! El rol 'docente' fue asignado a ${email}` };
-  } catch (error) {
-    logger.error("Error al asignar rol de admin:", error);
-    throw new HttpsError('internal', 'Error al asignar el rol.');
-  }
-});
-
-export const manageCoupons = onCall({ cors: true }, async (request) => {
-  if (request.auth?.token.rol !== 'docente') {
-    throw new HttpsError('permission-denied', 'Solo los docentes pueden gestionar cupones.');
-  }
-
-  const { action, data } = request.data;
-  const couponsCollection = db.collection('coupons');
-
-  try {
-    switch (action) {
-      case 'listCoupons': {
-        const snapshot = await couponsCollection.orderBy('createdAt', 'desc').get();
-        const coupons = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Coupon[];
-        return { success: true, coupons };
-      }
-      case 'createCoupon': {
-        const { code, discountPercentage } = data as Coupon;
-        if (!code || typeof code !== 'string' || code.trim().length < 3) {
-          throw new HttpsError('invalid-argument', 'El código debe tener al menos 3 caracteres.');
+// Helper para envolver funciones onRequest con CORS y manejo de errores
+const handleRequest = (
+    handler: (req: any, resp: any, decodedToken?: admin.auth.DecodedIdToken | null) => Promise<void>,
+    requiresAuth: boolean = false, // Indica si la ruta requiere autenticación
+    requiresRole?: string // Indica si requiere un rol específico (ej. 'docente')
+) => onRequest({ cors: false }, (req, resp) => { // Deshabilitar CORS automático de Firebase
+    corsMiddleware(req, resp, async () => { // Aplicar nuestro middleware CORS
+        if (req.method === 'OPTIONS') {
+            resp.status(204).send(''); // Manejar preflight
+            return;
         }
-        if (typeof discountPercentage !== 'number' || discountPercentage <= 0 || discountPercentage > 100) {
-          throw new HttpsError('invalid-argument', 'El porcentaje de descuento debe ser un número entre 1 y 100.');
+
+        let decodedToken: admin.auth.DecodedIdToken | null = null;
+        if (requiresAuth || requiresRole) {
+            const idToken = req.headers.authorization?.split('Bearer ')[1];
+            if (!idToken) {
+               resp.status(401).send({ error: { message: 'Unauthorized - No token provided' }});
+               return;
+            }
+            try {
+               decodedToken = await admin.auth().verifyIdToken(idToken);
+               if (requiresRole && decodedToken.rol !== requiresRole) {
+                   resp.status(403).send({ error: { message: `Permission Denied - Required role: ${requiresRole}` } });
+                   return;
+               }
+            } catch (error) {
+               logger.error("Token verification failed:", error);
+               resp.status(401).send({ error: { message: 'Unauthorized - Invalid token' }});
+               return;
+            }
         }
-        const existingCoupon = await couponsCollection.where('code', '==', code.trim().toUpperCase()).limit(1).get();
-        if (!existingCoupon.empty) {
-          throw new HttpsError('already-exists', 'Ya existe un cupón con este código.');
+
+        try {
+            // Pasar el token decodificado (o null) al handler
+            await handler(req, resp, decodedToken);
+        } catch (error: any) {
+            logger.error("Error no manejado en la función:", error);
+            // Simplificar manejo de error genérico
+            resp.status(500).send({ error: { message: error.message || "Error interno del servidor." } });
         }
-        const newCoupon: Coupon = {
-          code: code.trim().toUpperCase(),
-          discountPercentage,
-          active: true,
-          createdAt: admin.firestore.Timestamp.now(),
-        };
-        const docRef = await couponsCollection.add(newCoupon);
-        return { success: true, coupon: { id: docRef.id, ...newCoupon } };
-      }
-      case 'deleteCoupon': {
-        const { id } = data;
-        if (!id) throw new HttpsError('invalid-argument', 'Se requiere ID del cupón.');
-        await couponsCollection.doc(id).delete();
-        return { success: true, message: 'Cupón eliminado correctamente.' };
-      }
-      case 'toggleCouponStatus': {
-         const { id, active } = data;
-         if (!id || typeof active !== 'boolean') throw new HttpsError('invalid-argument', 'Se requiere ID y estado activo.');
-         await couponsCollection.doc(id).update({ active: active });
-         return { success: true, message: `Cupón ${active ? 'activado' : 'desactivado'}.` };
-       }
-      default:
-        throw new HttpsError('invalid-argument', 'Acción no válida.');
-    }
-  } catch (error: any) {
-    logger.error('Error en manageCoupons:', error);
-    // Devuelve el código de error específico si existe, si no, 'internal'
-    const errorCode = error?.code && typeof error.code === 'string'
-                      ? error.code
-                      : 'internal';
-    throw new HttpsError(errorCode as any, error.message || 'Ocurrió un error en el servidor.');
-  }
-});
-
-
-export const createPaymentPreference = onCall({ cors: true }, async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
-  }
-  const client = new MercadoPagoConfig({ accessToken: mercadopagoAccessToken.value() });
-  const { courseId, title, price, couponCode } = request.data;
-  const userId = request.auth.uid;
-  const userEmail = request.auth.token.email;
-
-  if (!userEmail) {
-    throw new HttpsError("invalid-argument", "El usuario no tiene un email asociado.");
-  }
-   if (!courseId || !title || typeof price !== 'number' || price <= 0) {
-      throw new HttpsError("invalid-argument", "Datos del curso inválidos.");
-  }
-
-  let finalPrice = Number(price);
-  let discountPercentage = 0;
-  let appliedCouponCode: string | null = null;
-
-  if (couponCode && typeof couponCode === 'string' && couponCode.trim()) {
-    const couponQuery = await db.collection('coupons')
-      .where('code', '==', couponCode.trim().toUpperCase())
-      .where('active', '==', true)
-      .limit(1)
-      .get();
-
-    if (!couponQuery.empty) {
-      const couponData = couponQuery.docs[0].data() as Coupon;
-      discountPercentage = couponData.discountPercentage;
-      finalPrice = finalPrice * (1 - discountPercentage / 100);
-      appliedCouponCode = couponData.code;
-      logger.info(`Cupón ${appliedCouponCode} aplicado. Descuento: ${discountPercentage}%. Precio final: ${finalPrice}`);
-    } else {
-       logger.warn(`Cupón ${couponCode} inválido o inactivo.`);
-       // Lanzar error específico para que el frontend lo capture
-       throw new HttpsError("not-found", `El cupón "${couponCode}" no es válido o ha expirado.`);
-    }
-  }
-
-  finalPrice = Math.max(finalPrice, 1); // Asegurar precio mínimo si es necesario
-
-  try {
-    const preference = new Preference(client);
-    const result = await preference.create({
-      body: {
-        items: [{
-          id: courseId,
-          title: `${title}${appliedCouponCode ? ` (Cupón: ${appliedCouponCode})` : ''}`,
-          unit_price: Math.round(finalPrice * 100) / 100, // Redondear a 2 decimales
-          quantity: 1
-        }],
-        payer: { email: userEmail },
-        back_urls: {
-          success: "https://berecardenascosmetologia.com/mis-cursos", // Cambiado a tu dominio final
-          failure: `https://berecardenascosmetologia.com/cursos/${courseId}`, // Cambiado a tu dominio final
-          pending: "https://berecardenascosmetologia.com/mis-cursos", // Cambiado a tu dominio final
-        },
-        auto_return: "approved",
-        external_reference: `${userId}_${courseId}`,
-        // Asegúrate que tu webhook URL sea la correcta después del deploy
-        notification_url: `https://us-central1-proyecto-bere.cloudfunctions.net/paymentWebhook`,
-        metadata: {
-           coupon_code: appliedCouponCode // Guardar el cupón usado
-         }
-      },
     });
-    logger.info(`Preferencia creada con ID: ${result.id}, Precio: ${finalPrice}`);
-    return { id: result.id };
-  } catch (error) {
-    logger.error("Error al crear la preferencia de pago:", error);
-    throw new HttpsError("internal", "No se pudo crear la preferencia de pago.");
-  }
 });
 
-// Nota: La lógica interna del webhook para confirmar el pago y la inscripción
-// aún necesita ser implementada si quieres automatizar la inscripción post-pago.
-export const paymentWebhook = onRequest(async (request, response) => {
-  if (request.method !== "POST") {
-    response.status(405).send("Método no permitido");
-    return;
-  }
-  logger.info("Webhook recibido:", request.body);
+// --- addAdminRole como onRequest ---
+export const addAdminRole = handleRequest(async (request, response, decodedToken) => {
+    // Ya está verificado que es docente por el wrapper si requiresRole = 'docente'
+    // const isAdmin = decodedToken?.rol === 'docente'; // O algún rol de superadmin
+    // if (!isAdmin) { ... } // Añadir si es necesario
 
-  const paymentInfo = request.body;
+    const { email } = request.body.data || request.body;
+     if (!email || typeof email !== 'string') {
+        response.status(400).send({ error: { message: 'Se necesita un email válido.' } });
+        return;
+     }
+     try {
+        const userRecord = await admin.auth().getUserByEmail(email);
+        await admin.auth().setCustomUserClaims(userRecord.uid, { rol: 'docente' });
+        await db.collection('users').doc(userRecord.uid).set({ rol: 'docente' }, { merge: true });
+        logger.info(`Rol 'docente' asignado a ${email}`);
+        response.status(200).send({ data: { message: `Éxito! El rol 'docente' fue asignado a ${email}` } });
+     } catch (error: any) {
+        logger.error("Error al asignar rol de admin:", error);
+         if (error.code === 'auth/user-not-found') {
+            response.status(404).send({ error: { message: `No se encontró un usuario con el email ${email}.` } });
+         } else {
+            response.status(500).send({ error: { message: error.message || 'Error interno al asignar el rol.' } });
+         }
+     }
+}, true, 'docente'); // Requiere autenticación y rol 'docente'
 
-  if (paymentInfo?.type === 'payment' && paymentInfo?.data?.id) {
-    const paymentId = paymentInfo.data.id;
-    logger.info(`Procesando notificación para pago ID: ${paymentId}`);
-    // Aquí iría la lógica futura para verificar el pago con Mercado Pago
-    // y luego actualizar Firestore para inscribir al usuario.
-  }
+// --- manageCoupons como onRequest ---
+export const manageCoupons = handleRequest(async (request, response, decodedToken) => {
+    // Rol 'docente' ya verificado por el wrapper
 
-  response.status(200).send("OK"); // Responder siempre OK a Mercado Pago
-});
+    const { action, data } = request.body.data || request.body;
+    const couponsCollection = db.collection('coupons');
 
-
-export const manageUser = onCall({ cors: true }, async (request) => {
-  if (request.auth?.token.rol !== 'docente') {
-    throw new HttpsError('permission-denied', 'Solo los docentes pueden realizar esta acción.');
-  }
-
-  const { action, data } = request.data;
-
-  try {
     switch (action) {
-      case 'listUsers': {
-        const userRecords = await admin.auth().listUsers();
-        // Filtrar para no incluir al propio admin/docente si se desea
-        const users = userRecords.users.map((user) => ({
-          uid: user.uid,
-          email: user.email,
-          nombre: user.displayName || '',
-        }));
-        return { success: true, users };
-      }
-      case 'updateUser': {
-        const { uid, email, nombre, password } = data;
-        const updateData: { email?: string; displayName?: string; password?: string } = {};
-        if (email) updateData.email = email; // Cuidado al actualizar email, requiere verificación
-        if (nombre) updateData.displayName = nombre;
-        if (password) updateData.password = password;
-
-        if (Object.keys(updateData).length > 0) {
-           await admin.auth().updateUser(uid, updateData);
+        case 'listCoupons': {
+            const snapshot = await couponsCollection.orderBy('createdAt', 'desc').get();
+            const coupons = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Coupon[];
+            response.status(200).send({ data: { success: true, coupons } });
+            return;
         }
-
-        // Actualizar Firestore siempre si hay nombre o email (incluso si no cambiaron en Auth)
-        // para asegurar consistencia o si solo se actualizó nombre.
-        const firestoreUpdate: {nombre?: string, email?: string} = {};
-        if (nombre) firestoreUpdate.nombre = nombre;
-        // if (email) firestoreUpdate.email = email; // Podrías querer actualizar email en Firestore también
-
-        if (Object.keys(firestoreUpdate).length > 0) {
-           await db.collection('users').doc(uid).update(firestoreUpdate);
+        case 'createCoupon': {
+            const { code, discountPercentage } = data as Coupon;
+            if (!code || typeof code !== 'string' || code.trim().length < 3) {
+                response.status(400).send({ error: { message: 'El código debe tener al menos 3 caracteres.' } });
+                return;
+            }
+            const cleanCode = code.trim().toUpperCase();
+            if (typeof discountPercentage !== 'number' || discountPercentage <= 0 || discountPercentage > 100) {
+                response.status(400).send({ error: { message: 'El porcentaje de descuento debe ser un número entre 1 y 100.' } });
+                return;
+            }
+            const existingCoupon = await couponsCollection.where('code', '==', cleanCode).limit(1).get();
+            if (!existingCoupon.empty) {
+                response.status(409).send({ error: { message: `Ya existe un cupón con el código "${cleanCode}".` } });
+                return;
+            }
+            const newCouponData: Coupon = { code: cleanCode, discountPercentage, active: true, createdAt: admin.firestore.Timestamp.now() };
+            const docRef = await couponsCollection.add(newCouponData);
+            response.status(200).send({ data: { success: true, coupon: { id: docRef.id, ...newCouponData } } });
+            return;
         }
-
-        return { success: true, message: 'Usuario actualizado correctamente.' };
-      }
-      case 'createUser': {
-         // Esta funcionalidad podría ser compleja (manejo de errores, roles, etc.)
-         // Considera si realmente necesitas crear usuarios desde aquí.
-        const { email, password, nombre } = data;
-        const userRecord = await admin.auth().createUser({ email, password, displayName: nombre });
-        await db.collection('users').doc(userRecord.uid).set({
-          uid: userRecord.uid,
-          nombre: nombre,
-          email: email,
-          rol: 'estudiante', // Por defecto estudiante
-          cursosInscritos: []
-        });
-        return { success: true, user: { uid: userRecord.uid, email, nombre } };
-      }
-      case 'deleteUser': {
-        const { uid } = data;
-        await admin.auth().deleteUser(uid);
-        // También eliminar el documento del usuario en Firestore
-        await db.collection('users').doc(uid).delete();
-        // Considerar eliminar subcolecciones (progreso) si existen.
-        // Esto usualmente requiere una función específica o extensión de Firebase.
-        return { success: true, message: 'Usuario eliminado correctamente.' };
-      }
-      default:
-        throw new HttpsError('invalid-argument', 'Acción no válida.');
+        case 'deleteCoupon': {
+            const { id } = data;
+            if (!id || typeof id !== 'string') {
+                response.status(400).send({ error: { message: 'Se requiere un ID de cupón válido.' } });
+                return;
+            }
+            await couponsCollection.doc(id).delete();
+            response.status(200).send({ data: { success: true, message: 'Cupón eliminado correctamente.' } });
+            return;
+        }
+        case 'toggleCouponStatus': {
+            const { id, active } = data;
+            if (!id || typeof id !== 'string' || typeof active !== 'boolean') {
+                response.status(400).send({ error: { message: 'Se requiere un ID válido y un estado activo (true/false).' } });
+                return;
+            }
+            await couponsCollection.doc(id).update({ active: active });
+            response.status(200).send({ data: { success: true, message: `Cupón ${active ? 'activado' : 'desactivado'}.` } });
+            return;
+        }
+        default:
+            response.status(400).send({ error: { message: 'Acción no válida.' } });
+            return;
     }
-  } catch (error: any) {
-    logger.error('Error en manageUser:', error);
-    throw new HttpsError('internal', error.message || 'Ocurrió un error en el servidor.');
-  }
+}, true, 'docente'); // Requiere autenticación y rol 'docente'
+
+
+// --- createPaymentPreference como onRequest ---
+export const createPaymentPreference = handleRequest(async (request, response, decodedToken) => {
+    // Autenticación ya verificada por el wrapper
+    const userId = decodedToken!.uid; // Sabemos que no es null por requiresAuth=true
+    const userEmail = decodedToken!.email;
+
+     if (!userEmail) {
+        response.status(400).send({ error: { message: "El usuario no tiene un email asociado." } });
+        return;
+     }
+
+     const { courseId, title, price, couponCode } = request.body.data || request.body;
+
+     if (!courseId || !title || typeof price !== 'number' || price <= 0) {
+          response.status(400).send({ error: { message: "Datos del curso inválidos." } });
+          return;
+     }
+
+     let finalPrice = Number(price);
+     let discountPercentage = 0;
+     let appliedCouponCode: string | null = null;
+     let couponErrorMessage: string | null = null;
+
+     if (couponCode && typeof couponCode === 'string' && couponCode.trim()) {
+        const cleanCouponCode = couponCode.trim().toUpperCase();
+        const couponQuery = await db.collection('coupons')
+        .where('code', '==', cleanCouponCode)
+        .where('active', '==', true)
+        .limit(1)
+        .get();
+
+        if (!couponQuery.empty) {
+            const couponData = couponQuery.docs[0].data() as Coupon;
+            discountPercentage = couponData.discountPercentage;
+            finalPrice = finalPrice * (1 - discountPercentage / 100);
+            appliedCouponCode = couponData.code;
+            logger.info(`Cupón ${appliedCouponCode} aplicado para usuario ${userId}. Precio final: ${finalPrice}`);
+        } else {
+            logger.warn(`Cupón "${cleanCouponCode}" inválido o inactivo intentado por usuario ${userId}.`);
+            couponErrorMessage = `El cupón "${cleanCouponCode}" no es válido o ha expirado.`;
+        }
+     }
+
+    if (couponErrorMessage) {
+        response.status(400).send({ error: { message: couponErrorMessage, code: 'coupon-not-found' } });
+        return;
+    }
+
+     finalPrice = Math.max(finalPrice, 1);
+
+     try {
+        const client = new MercadoPagoConfig({ accessToken: mercadopagoAccessToken.value() });
+        const preference = new Preference(client);
+        const result = await preference.create({
+            body: {
+                items: [{ id: courseId, title: `${title}${appliedCouponCode ? ` (Cupón: ${appliedCouponCode})` : ''}`, unit_price: Math.round(finalPrice * 100) / 100, quantity: 1 }],
+                payer: { email: userEmail },
+                back_urls: { success: "https://berecardenascosmetologia.com/mis-cursos", failure: `https://berecardenascosmetologia.com/cursos/${courseId}`, pending: "https://berecardenascosmetologia.com/mis-cursos" },
+                auto_return: "approved",
+                external_reference: `${userId}_${courseId}`,
+                notification_url: `https://us-central1-proyecto-bere.cloudfunctions.net/paymentWebhook`,
+                metadata: { coupon_code: appliedCouponCode, user_id: userId, course_id: courseId }
+            },
+        });
+        logger.info(`Preferencia creada con ID: ${result.id}, Precio: ${finalPrice}`);
+        response.status(200).send({ data: { id: result.id } });
+     } catch(error: any) {
+         logger.error("Error al crear la preferencia de pago en Mercado Pago:", error);
+         response.status(500).send({ error: { message: "No se pudo crear la preferencia de pago." , details: error.message } });
+     }
+}, true); // Requiere autenticación, pero no rol específico
+
+// --- paymentWebhook se mantiene onRequest y SIN CORS explícito ---
+export const paymentWebhook = onRequest(async (request, response) => {
+    // ... (código del webhook sin cambios respecto a la versión anterior de onRequest) ...
+    if (request.method !== "POST") {
+        logger.warn("Webhook recibido con método no permitido:", request.method);
+        response.status(405).send("Method Not Allowed");
+        return;
+    }
+    logger.info("Webhook de Mercado Pago recibido:", JSON.stringify(request.body));
+    const paymentInfo = request.body;
+    if (paymentInfo?.type === 'payment' && paymentInfo?.data?.id) {
+        const paymentId = paymentInfo.data.id as string;
+        logger.info(`Procesando notificación para pago ID de MP: ${paymentId}`);
+        try {
+            const mpClient = new MercadoPagoConfig({ accessToken: mercadopagoAccessToken.value() });
+            const payment = new Payment(mpClient);
+            const paymentDetails = await payment.get({ id: paymentId });
+            logger.info(`Detalles del pago ${paymentId}: Estado=${paymentDetails.status}, Ref=${paymentDetails.external_reference}`);
+
+            if (paymentDetails.status === 'approved' && paymentDetails.external_reference) {
+                const [userId, courseId] = paymentDetails.external_reference.split('_');
+                if (userId && courseId) {
+                    const userDocRef = db.collection('users').doc(userId);
+                    // Importante: Asegurarse que el documento exista antes de actualizar o usar set con merge
+                     const userDoc = await userDocRef.get();
+                     if (userDoc.exists) {
+                         await userDocRef.update({
+                             cursosInscritos: admin.firestore.FieldValue.arrayUnion(courseId)
+                         });
+                         logger.info(`Usuario ${userId} inscrito exitosamente al curso ${courseId} via webhook.`);
+                     } else {
+                          logger.error(`Webhook: Usuario ${userId} no encontrado en Firestore para inscribir al curso ${courseId}.`);
+                          // Considera crear el usuario si no existe, aunque no debería pasar si pagó.
+                     }
+
+                    await db.collection('payments').doc(paymentId).set({
+                        paymentId: paymentId, userId: userId, courseId: courseId, status: paymentDetails.status,
+                        amount: paymentDetails.transaction_amount, couponUsed: paymentDetails.metadata?.coupon_code || null,
+                        processedAt: admin.firestore.Timestamp.now()
+                    }, { merge: true });
+                } else {
+                    logger.warn(`Referencia externa inválida en pago aprobado ${paymentId}: ${paymentDetails.external_reference}`);
+                }
+            } else {
+                logger.info(`Pago ${paymentId} no está aprobado (estado: ${paymentDetails.status}) o no tiene referencia externa.`);
+                if (paymentDetails.external_reference) {
+                    const [userId, courseId] = paymentDetails.external_reference.split('_');
+                     await db.collection('payments').doc(paymentId).set({
+                         paymentId: paymentId, userId: userId || 'unknown', courseId: courseId || 'unknown', status: paymentDetails.status,
+                         amount: paymentDetails.transaction_amount, couponUsed: paymentDetails.metadata?.coupon_code || null,
+                         processedAt: admin.firestore.Timestamp.now()
+                     }, { merge: true });
+                 }
+            }
+        } catch (error: any) {
+            logger.error(`Error procesando webhook para pago ${paymentId}:`, error);
+        }
+    } else {
+        logger.warn("Webhook recibido no es de tipo 'payment' o falta data.id:", paymentInfo?.type);
+    }
+    response.status(200).send("OK");
 });
+
+// --- manageUser como onRequest ---
+export const manageUser = handleRequest(async (request, response, decodedToken) => {
+    // Rol 'docente' ya verificado por el wrapper
+
+     const { action, data } = request.body.data || request.body;
+
+     switch (action) {
+         case 'listUsers': {
+             const userRecords = await admin.auth().listUsers();
+             const users = userRecords.users.map((user) => ({ uid: user.uid, email: user.email, nombre: user.displayName || '', }));
+             response.status(200).send({ data: { success: true, users } });
+             return;
+         }
+         case 'updateUser': {
+             const { uid, email, nombre, password } = data; // email no se usa para actualizar Auth
+             if (!uid || typeof uid !== 'string') {
+                 response.status(400).send({ error: { message: 'Se requiere UID de usuario.' } });
+                 return;
+             }
+             const updateDataAuth: { displayName?: string; password?: string } = {};
+             if (nombre && typeof nombre === 'string') updateDataAuth.displayName = nombre;
+             if (password && typeof password === 'string' && password.length >= 6) updateDataAuth.password = password;
+
+             if (Object.keys(updateDataAuth).length > 0) { await admin.auth().updateUser(uid, updateDataAuth); logger.info(`Usuario Auth ${uid} actualizado.`); }
+
+             const firestoreUpdate: {nombre?: string} = {};
+             if (nombre && typeof nombre === 'string') firestoreUpdate.nombre = nombre;
+             if (Object.keys(firestoreUpdate).length > 0) { await db.collection('users').doc(uid).update(firestoreUpdate); logger.info(`Usuario Firestore ${uid} actualizado.`); }
+
+             response.status(200).send({ data: { success: true, message: 'Usuario actualizado correctamente.' } });
+             return;
+         }
+         case 'createUser': {
+             const { email, password, nombre } = data;
+             if (!email || !password || password.length < 6 || !nombre) {
+                 response.status(400).send({ error: { message: 'Datos de usuario inválidos.' }});
+                 return;
+             }
+             const userRecord = await admin.auth().createUser({ email, password, displayName: nombre });
+             await db.collection('users').doc(userRecord.uid).set({ uid: userRecord.uid, nombre: nombre, email: email, rol: 'estudiante', cursosInscritos: [] });
+             logger.info(`Usuario ${email} creado por docente.`);
+             response.status(200).send({ data: { success: true, user: { uid: userRecord.uid, email, nombre } } });
+             return;
+         }
+         case 'deleteUser': {
+             const { uid } = data;
+             if (!uid || typeof uid !== 'string') {
+                 response.status(400).send({ error: { message: 'Se requiere UID de usuario.' } });
+                 return;
+             }
+             await admin.auth().deleteUser(uid);
+             await db.collection('users').doc(uid).delete();
+             logger.info(`Usuario ${uid} eliminado por docente.`);
+             response.status(200).send({ data: { success: true, message: 'Usuario eliminado correctamente.' } });
+             return;
+         }
+         default:
+             response.status(400).send({ error: { message: 'Acción no válida.' } });
+             return;
+     }
+}, true, 'docente'); // Requiere autenticación y rol 'docente'
