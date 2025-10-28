@@ -1,5 +1,3 @@
-// RUTA: src/app/cursos/[courseId]/page.tsx
-
 "use client";
 
 import { useEffect, useState } from 'react';
@@ -13,7 +11,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 interface Lesson {
   id: string;
   title: string;
-  videoUrl: string;
+  videoUrl?: string;
   textContent?: string;
   supportMaterialUrl?: string;
 }
@@ -33,8 +31,9 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [loading, setLoading] = useState(true);
   const [isEnrolled, setIsEnrolled] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponError, setCouponError] = useState<string | null>(null);
 
-  // Estados para el flujo de transferencia
   const [showTransferDetails, setShowTransferDetails] = useState(false);
   const [transferName, setTransferName] = useState('');
   const [transferPhone, setTransferPhone] = useState('');
@@ -44,13 +43,16 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   useEffect(() => {
     const checkEnrollment = user?.cursosInscritos?.includes(params.courseId) || user?.rol === 'docente';
     setIsEnrolled(checkEnrollment);
-    
+
     const fetchCourseContent = async () => {
       setLoading(true);
       try {
         const courseDocRef = doc(db, 'courses', params.courseId);
         const courseSnap = await getDoc(courseDocRef);
-        if (courseSnap.exists()) setCourse(courseSnap.data() as CourseDetails);
+        if (courseSnap.exists()) {
+          const courseData = courseSnap.data() as CourseDetails;
+          setCourse(courseData);
+        }
 
         const lessonsColRef = collection(db, `courses/${params.courseId}/lessons`);
         const q = query(lessonsColRef, orderBy('createdAt', 'asc'));
@@ -63,7 +65,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
           const progressSnap = await getDoc(progressDocRef);
           const userProgress = progressSnap.exists() ? progressSnap.data().completedLessons || [] : [];
           setCompletedLessons(userProgress);
-          
+
           const firstUncompletedLesson = lessonsData.find(lesson => !userProgress.includes(lesson.id));
           setSelectedLesson(firstUncompletedLesson || lessonsData[0]);
         }
@@ -76,6 +78,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     if (params.courseId) fetchCourseContent();
   }, [params.courseId, user]);
 
+
   const handlePayment = async () => {
     if (!user) {
       router.push('/login');
@@ -85,44 +88,61 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         alert("El precio del curso no está definido. Contacta al administrador.");
         return;
     }
-    
+
     setIsProcessingPayment(true);
+    setCouponError(null);
 
     try {
       const functions = getFunctions();
       const createPaymentPreference = httpsCallable(functions, 'createPaymentPreference');
-      
-      const result: any = await createPaymentPreference({ 
+
+      const result: any = await createPaymentPreference({
         courseId: params.courseId,
         title: course.title,
-        price: course.price
+        price: course.price,
+        couponCode: couponCode.trim() || undefined
       });
 
       const preferenceId = result.data.id;
       if (preferenceId) {
         const checkoutBtnContainer = document.querySelector('.checkout-btn');
         if(checkoutBtnContainer) checkoutBtnContainer.innerHTML = '';
-        
+        const transferButton = document.querySelector('.transfer-button');
+        if(transferButton) (transferButton as HTMLElement).style.display = 'none';
+
         const script = document.createElement("script");
         script.src = "https://sdk.mercadopago.com/js/v2";
         script.onload = () => {
-          const mp = new (window as any).MercadoPago('APP_USR-064fcb79-4b66-4476-8fc3-a93db866326e', { locale: 'es-MX' });
+          const mp = new (window as any).MercadoPago(process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY!, { locale: 'es-MX' });
           mp.checkout({
             preference: { id: preferenceId },
             render: { container: '.checkout-btn', label: 'Pagar ahora' }
           });
         };
         document.body.appendChild(script);
-        
+
         const originalButton = document.querySelector('.enroll-button');
         if (originalButton) (originalButton as HTMLElement).style.display = 'none';
+        const couponSection = document.querySelector('.coupon-section');
+        if (couponSection) (couponSection as HTMLElement).style.display = 'none';
+
+      } else {
+          throw new Error("No se recibió ID de preferencia de Mercado Pago.");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error al crear la preferencia de pago:", error);
-      alert("Hubo un error al iniciar el proceso de pago. Inténtalo de nuevo.");
+      if (error.code === 'functions/not-found' && error.message.includes("cupón")) {
+           setCouponError(error.message);
+      } else if (error.code === 'functions/invalid-argument') {
+          setCouponError(error.message);
+      }
+      else {
+           alert("Hubo un error al iniciar el proceso de pago. Inténtalo de nuevo.");
+      }
       setIsProcessingPayment(false);
     }
   };
+
 
   const handleTransferRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,17 +157,18 @@ export default function CoursePage({ params }: { params: { courseId: string } })
 
     setIsProcessingPayment(true);
     try {
-      // Usar setDoc con doc(collection(...)) para generar un ID automático
       await setDoc(doc(collection(db, 'transferRequests')), {
         userId: user.uid,
         userName: transferName,
         userPhone: transferPhone,
         courseId: params.courseId,
         courseTitle: course?.title,
+        couponCode: couponCode.trim() || null,
         status: 'pending',
         createdAt: serverTimestamp(),
       });
       setTransferRequestSent(true);
+      setShowTransferDetails(false); // Ocultar detalles de transferencia al enviar
     } catch (error) {
       console.error("Error al crear la solicitud de transferencia:", error);
       alert("No se pudo enviar tu solicitud. Por favor, inténtalo de nuevo.");
@@ -155,6 +176,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
       setIsProcessingPayment(false);
     }
   };
+
 
   const handleVideoProgress = async (event: React.SyntheticEvent<HTMLVideoElement, Event>) => {
     if (!user || !selectedLesson || completedLessons.includes(selectedLesson.id)) return;
@@ -171,7 +193,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
       }
     }
   };
-  
+
   if (loading) return <p className="text-center mt-12 text-lg text-text-secondary">Cargando...</p>;
   if (!course) return <p className="text-center mt-12 text-lg text-text-secondary">Curso no encontrado.</p>;
 
@@ -186,8 +208,27 @@ export default function CoursePage({ params }: { params: { courseId: string } })
               <div>
                 <div className="aspect-video mb-6 bg-background rounded-lg">
                   <h2 className="text-2xl font-bold text-text-primary mb-4 px-2 pt-2">{selectedLesson.title}</h2>
-                  <video key={selectedLesson.id} controls className="w-full h-full rounded-b-lg" src={selectedLesson.videoUrl} preload="metadata" onTimeUpdate={handleVideoProgress} />
+                  {selectedLesson.videoUrl ? (
+                    <video key={selectedLesson.id} controls className="w-full h-full rounded-b-lg" src={selectedLesson.videoUrl} preload="metadata" onTimeUpdate={handleVideoProgress} />
+                  ) : (
+                     <div className="p-4 text-text-secondary">
+                        <p>{selectedLesson.textContent || "Contenido de texto no disponible."}</p>
+                    </div>
+                  )}
                 </div>
+                 {selectedLesson.textContent && selectedLesson.videoUrl && (
+                    <div className="mt-4 p-4 bg-background rounded">
+                        <h3 className="text-xl font-semibold text-primary mb-2">Material de Lectura</h3>
+                        <p className="text-text-secondary whitespace-pre-wrap">{selectedLesson.textContent}</p>
+                    </div>
+                )}
+                {selectedLesson.supportMaterialUrl && (
+                  <div className="mt-4">
+                    <a href={selectedLesson.supportMaterialUrl} target="_blank" rel="noopener noreferrer" className="inline-block bg-primary/20 text-primary font-bold py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors">
+                      Descargar Material de Apoyo
+                    </a>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="bg-background border border-primary/50 p-8 rounded-lg text-center">
@@ -197,8 +238,22 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                     ${course.price} MXN
                   </p>
                 )}
+
+
                 {!showTransferDetails && !transferRequestSent && (
-                  <div className="flex flex-col md:flex-row gap-4 justify-center">
+                  <>
+                  <div className="coupon-section max-w-sm mx-auto my-4">
+                    <input
+                      type="text"
+                      placeholder="Código de Cupón (opcional)"
+                      value={couponCode}
+                      onChange={(e) => {setCouponCode(e.target.value.toUpperCase()); setCouponError(null);}}
+                      className="w-full bg-surface border border-gray-600 rounded px-3 py-2 text-text-primary focus:outline-none focus:border-primary"
+                    />
+                   {couponError && <p className="text-red-500 text-xs mt-1">{couponError}</p>}
+                   </div>
+
+                  <div className="flex flex-col md:flex-row gap-4 justify-center mt-4">
                     <div className="checkout-btn flex-grow"></div>
                     <button
                       onClick={handlePayment}
@@ -209,17 +264,33 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                     </button>
                     <button
                       onClick={() => setShowTransferDetails(true)}
-                      className="bg-transparent border border-primary text-primary font-bold py-3 px-8 rounded-full text-lg hover:bg-primary/10 transition-colors"
+                       disabled={isProcessingPayment}
+                      className="transfer-button bg-transparent border border-primary text-primary font-bold py-3 px-8 rounded-full text-lg hover:bg-primary/10 transition-colors disabled:opacity-50"
                     >
                       Pagar por Transferencia
                     </button>
                   </div>
+                  </>
                 )}
               </div>
             )}
              {showTransferDetails && !transferRequestSent && (
               <div className="mt-6 bg-background border border-primary/30 p-6 rounded-lg">
+                <button onClick={() => setShowTransferDetails(false)} className="text-sm text-text-secondary hover:text-primary mb-4">&larr; Volver a opciones de pago</button>
                 <h3 className="text-xl font-bold text-primary mb-4">Datos para Transferencia o Depósito</h3>
+
+                <div className="coupon-section max-w-sm mx-auto mb-4">
+                    <input
+                      type="text"
+                      placeholder="Código de Cupón (opcional)"
+                      value={couponCode}
+                      onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                      className="w-full bg-surface border border-gray-600 rounded px-3 py-2 text-text-primary focus:outline-none focus:border-primary"
+                    />
+                 </div>
+                 {/* Aquí podríamos mostrar el precio con descuento si tuviéramos una validación previa */}
+                 <p className="text-center text-text-secondary text-lg mb-4">Total a transferir: <strong>${course?.price || 0} MXN</strong> (El descuento se aplicará al confirmar)</p>
+
                 <div className="text-left text-text-secondary space-y-2 mb-6">
                   <p><strong>Banco:</strong> BBVA</p>
                   <p><strong>Nombre:</strong> María Berenice Cardenas Vázquez</p>
@@ -235,7 +306,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                   <input type="text" placeholder="Nombre Completo" value={transferName} onChange={(e) => setTransferName(e.target.value)} required className="bg-surface w-full p-2 rounded mb-3 text-text-primary border border-gray-600 focus:border-primary" />
                   <input type="tel" placeholder="Número de WhatsApp" value={transferPhone} onChange={(e) => setTransferPhone(e.target.value)} required className="bg-surface w-full p-2 rounded mb-4 text-text-primary border border-gray-600 focus:border-primary" />
                   <button type="submit" disabled={isProcessingPayment} className="w-full bg-primary text-background font-bold py-3 px-8 rounded-full hover:opacity-90 disabled:bg-gray-500">
-                    {isProcessingPayment ? 'Enviando...' : 'Apartar mi Lugar'}
+                    {isProcessingPayment ? 'Enviando...' : 'Apartar mi Lugar y Enviar Comprobante'}
                   </button>
                 </form>
               </div>
@@ -245,7 +316,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
               <div className="mt-6 bg-green-900/50 border border-green-400 p-6 rounded-lg text-center">
                 <h3 className="text-2xl font-bold text-green-300 mb-3">¡Solicitud Enviada!</h3>
                 <p className="text-text-primary mb-2">
-                  Hemos recibido tus datos para apartar tu lugar. Uno de nuestros docentes confirmará tu inscripción una vez que recibamos tu comprobante de pago.
+                  Hemos recibido tus datos para apartar tu lugar. Tu inscripción se confirmará una vez que recibamos tu comprobante de pago y lo validemos.
                 </p>
                 <p className="text-text-secondary">
                   No olvides enviar tu comprobante por WhatsApp al:
@@ -269,12 +340,15 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                     ${isEnrolled && isUnlocked ? (selectedLesson?.id === lesson.id ? 'bg-primary text-background' : 'hover:bg-background cursor-pointer') : ''}
                   `}
                 >
-                  <span className="flex-grow"><span className="font-semibold">Lección {index + 1}:</span> {lesson.title}</span>
-                  {isCompleted && <CheckmarkIcon className="w-5 h-5 text-green-400 ml-2 flex-shrink-0" />}
-                  {!isUnlocked && isEnrolled && <span className="text-xs ml-2 flex-shrink-0">🔒</span>}
+                  <span className="flex-grow mr-2"><span className="font-semibold">Lección {index + 1}:</span> {lesson.title}</span>
+                  {isCompleted && <CheckmarkIcon className="w-5 h-5 text-green-400 flex-shrink-0" />}
+                  {!isUnlocked && isEnrolled && <span className="text-xs text-gray-500 flex-shrink-0">🔒</span>}
                 </li>
               );
             })}
+             {lessons.length === 0 && !loading && (
+                 <li className="p-3 text-text-secondary/70">Aún no hay lecciones en este curso.</li>
+             )}
           </ul>
         </aside>
       </div>

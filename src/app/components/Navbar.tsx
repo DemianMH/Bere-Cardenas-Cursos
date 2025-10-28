@@ -1,5 +1,3 @@
-// RUTA: src/app/components/Navbar.tsx
-
 "use client";
 
 import Image from 'next/image';
@@ -46,6 +44,9 @@ const Navbar = () => {
           <Link href="/admin/preguntas" className="py-2 font-bold text-primary hover:text-text-primary transition-colors" onClick={() => setNavIsOpen(false)}>
             Preguntas
           </Link>
+          <Link href="/admin/cupones" className="py-2 font-bold text-primary hover:text-text-primary transition-colors" onClick={() => setNavIsOpen(false)}>
+            Cupones
+          </Link>
         </>
       )}
       <Link href="/acerca-de" className="py-2 text-text-secondary hover:text-primary transition-colors" onClick={() => setNavIsOpen(false)}>Acerca de</Link>
@@ -57,20 +58,18 @@ const Navbar = () => {
     <header className="bg-surface shadow-md sticky top-0 z-50">
       <nav className="container mx-auto px-6 py-3 flex justify-between items-center">
         <Link href="/">
-          <Image 
+          <Image
             src="/logo_blanco.png"
-            alt="Bere Cárdenas Logo" 
-            width={200} 
-            height={50} 
-            priority 
+            alt="Bere Cárdenas Logo"
+            width={200}
+            height={50}
+            priority
           />
         </Link>
-        {/* Links para Desktop */}
         <div className="hidden md:flex items-center space-x-6">
           <NavLinks />
         </div>
 
-        {/* Botones de Sesión */}
         <div className="hidden md:block">
           {user ? (
             <button
@@ -86,23 +85,21 @@ const Navbar = () => {
           )}
         </div>
 
-        {/* Botón de Menú Móvil */}
         <div className="md:hidden">
           <button onClick={() => setNavIsOpen(!navIsOpen)}>
-            {navIsOpen ? <AiOutlineClose size={25} /> : <AiOutlineMenu size={25} />}
+            {navIsOpen ? <AiOutlineClose size={25} className="text-text-primary" /> : <AiOutlineMenu size={25} className="text-text-primary" />}
           </button>
         </div>
       </nav>
 
-      {/* Panel de Menú Móvil */}
       {navIsOpen && (
-        <div className="md:hidden bg-surface absolute w-full left-0">
+        <div className="md:hidden bg-surface absolute w-full left-0 border-t border-primary/20">
           <div className="px-6 pt-2 pb-6 flex flex-col items-center space-y-4">
             <NavLinks />
             <div className="mt-4">
               {user ? (
                 <button
-                  onClick={handleLogout}
+                  onClick={() => { handleLogout(); setNavIsOpen(false); }}
                   className="bg-surface text-text-primary border border-primary py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors"
                 >
                   Cerrar Sesión
