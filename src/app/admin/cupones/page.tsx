@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { app } from '@/lib/firebase';
+import { app, auth } from '@/lib/firebase'; // Importar auth
 import { useAuth } from '@/context/AuthContext';
 
 interface Coupon {
@@ -28,11 +28,12 @@ export default function AdminCuponesPage() {
     setLoading(true);
     setError(null);
     try {
+      // httpsCallable maneja la autenticación automáticamente si el usuario está logueado
       const result: any = await manageCoupons({ action: 'listCoupons' });
       if (result.data.success) {
         setCoupons(result.data.coupons);
       } else {
-        throw new Error('Error al cargar cupones');
+        throw new Error(result.data.message || 'Error al cargar cupones');
       }
     } catch (err: any) {
       console.error("Error al cargar cupones:", err);
@@ -45,6 +46,8 @@ export default function AdminCuponesPage() {
   useEffect(() => {
     if (user && user.rol === 'docente') {
       fetchCoupons();
+    } else if (user === null) {
+        // Podrías redirigir si no es docente, aunque el layout ya lo hace
     }
   }, [user]);
 
@@ -65,13 +68,14 @@ export default function AdminCuponesPage() {
       if (result.data.success) {
         setNewCouponCode('');
         setNewCouponDiscount('');
-        fetchCoupons();
+        fetchCoupons(); // Recargar la lista
       } else {
+        // Si la función onCall lanza un error, entra en el catch
         throw new Error(result.data.message || 'Error al crear cupón');
       }
     } catch (err: any) {
       console.error("Error al crear cupón:", err);
-      setError(err.message || 'No se pudo crear el cupón.');
+      setError(err.message || 'No se pudo crear el cupón.'); // Mostrar error de la función
     } finally {
       setIsSubmitting(false);
     }
@@ -79,39 +83,41 @@ export default function AdminCuponesPage() {
 
   const handleDeleteCoupon = async (id: string, code: string) => {
     if (window.confirm(`¿Estás seguro de eliminar el cupón "${code}"?`)) {
-      setLoading(true);
+      setLoading(true); // Usar setLoading para indicar operación en curso
       try {
         const result: any = await manageCoupons({ action: 'deleteCoupon', data: { id } });
         if (result.data.success) {
-          fetchCoupons();
+          fetchCoupons(); // Recargar lista
         } else {
-          throw new Error('Error al eliminar cupón');
+          throw new Error(result.data.message || 'Error al eliminar cupón');
         }
       } catch (err: any) {
         console.error("Error al eliminar cupón:", err);
         alert(err.message || 'No se pudo eliminar el cupón.');
-        setLoading(false);
+        setLoading(false); // Detener indicador si hay error
       }
+      // setLoading(false) se maneja en fetchCoupons si tiene éxito
     }
   };
 
    const handleToggleCouponStatus = async (id: string, currentStatus: boolean) => {
-     setLoading(true);
+     setLoading(true); // Indicar operación en curso
      try {
        const result: any = await manageCoupons({
          action: 'toggleCouponStatus',
          data: { id, active: !currentStatus }
        });
        if (result.data.success) {
-         fetchCoupons();
+         fetchCoupons(); // Recargar lista
        } else {
-         throw new Error('Error al cambiar estado del cupón');
+         throw new Error(result.data.message || 'Error al cambiar estado del cupón');
        }
      } catch (err: any) {
        console.error("Error al cambiar estado:", err);
        alert(err.message || 'No se pudo cambiar el estado del cupón.');
-       setLoading(false);
+       setLoading(false); // Detener indicador si hay error
      }
+      // setLoading(false) se maneja en fetchCoupons si tiene éxito
    };
 
   return (
@@ -163,37 +169,39 @@ export default function AdminCuponesPage() {
 
       <div className="bg-surface p-6 rounded-lg shadow-lg max-w-3xl mx-auto border border-primary/20 overflow-x-auto">
          <h2 className="text-2xl font-bold text-primary mb-6">Cupones Existentes</h2>
-         {loading && <p>Cargando cupones...</p>}
-         {!loading && coupons.length === 0 && <p>No hay cupones creados.</p>}
+         {loading && <p className="text-center text-text-secondary">Cargando cupones...</p>}
+         {!loading && coupons.length === 0 && <p className="text-center text-text-secondary">No hay cupones creados.</p>}
          {!loading && coupons.length > 0 && (
-           <table className="w-full text-left">
+           <table className="w-full text-left min-w-[500px]">
              <thead className="border-b border-primary/30">
                <tr>
                  <th className="p-3 text-text-primary">Código</th>
                  <th className="p-3 text-text-primary">Descuento</th>
-                 <th className="p-3 text-text-primary">Estado</th>
-                 <th className="p-3 text-text-primary">Acciones</th>
+                 <th className="p-3 text-text-primary text-center">Estado</th>
+                 <th className="p-3 text-text-primary text-right">Acciones</th>
                </tr>
              </thead>
              <tbody>
                {coupons.map(coupon => (
                  <tr key={coupon.id} className="border-b border-gray-700 hover:bg-background">
-                   <td className="p-3 font-mono">{coupon.code}</td>
-                   <td className="p-3">{coupon.discountPercentage}%</td>
-                    <td className="p-3">
+                   <td className="p-3 font-mono text-text-secondary">{coupon.code}</td>
+                   <td className="p-3 text-text-secondary">{coupon.discountPercentage}%</td>
+                    <td className="p-3 text-center">
                      <button
                        onClick={() => handleToggleCouponStatus(coupon.id!, coupon.active)}
-                       className={`px-3 py-1 text-xs font-semibold rounded-full ${
+                       disabled={loading}
+                       className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors disabled:opacity-50 ${
                          coupon.active ? 'bg-green-600/30 text-green-300 hover:bg-green-500 hover:text-white' : 'bg-yellow-600/30 text-yellow-300 hover:bg-yellow-500 hover:text-white'
                        }`}
                      >
                        {coupon.active ? 'Activo' : 'Inactivo'}
                      </button>
                    </td>
-                   <td className="p-3">
+                   <td className="p-3 text-right">
                      <button
                        onClick={() => handleDeleteCoupon(coupon.id!, coupon.code)}
-                       className="text-red-400 hover:underline text-xs"
+                       disabled={loading}
+                       className="text-red-400 hover:underline text-xs disabled:opacity-50"
                      >
                        Eliminar
                      </button>

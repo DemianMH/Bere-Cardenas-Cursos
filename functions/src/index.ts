@@ -88,7 +88,11 @@ export const manageCoupons = onCall({ cors: true }, async (request) => {
     }
   } catch (error: any) {
     logger.error('Error en manageCoupons:', error);
-    throw new HttpsError(error.code || 'internal', error.message || 'Ocurrió un error en el servidor.');
+    // Devuelve el código de error específico si existe, si no, 'internal'
+    const errorCode = error?.code && typeof error.code === 'string'
+                      ? error.code
+                      : 'internal';
+    throw new HttpsError(errorCode as any, error.message || 'Ocurrió un error en el servidor.');
   }
 });
 
@@ -128,11 +132,12 @@ export const createPaymentPreference = onCall({ cors: true }, async (request) =>
       logger.info(`Cupón ${appliedCouponCode} aplicado. Descuento: ${discountPercentage}%. Precio final: ${finalPrice}`);
     } else {
        logger.warn(`Cupón ${couponCode} inválido o inactivo.`);
+       // Lanzar error específico para que el frontend lo capture
        throw new HttpsError("not-found", `El cupón "${couponCode}" no es válido o ha expirado.`);
     }
   }
 
-  finalPrice = Math.max(finalPrice, 1);
+  finalPrice = Math.max(finalPrice, 1); // Asegurar precio mínimo si es necesario
 
   try {
     const preference = new Preference(client);
@@ -141,20 +146,21 @@ export const createPaymentPreference = onCall({ cors: true }, async (request) =>
         items: [{
           id: courseId,
           title: `${title}${appliedCouponCode ? ` (Cupón: ${appliedCouponCode})` : ''}`,
-          unit_price: Math.round(finalPrice * 100) / 100,
+          unit_price: Math.round(finalPrice * 100) / 100, // Redondear a 2 decimales
           quantity: 1
         }],
         payer: { email: userEmail },
         back_urls: {
-          success: "https://bere-cardenas-page.netlify.app/mis-cursos",
-          failure: `https://bere-cardenas-page.netlify.app/cursos/${courseId}`,
-          pending: "https://bere-cardenas-page.netlify.app/mis-cursos",
+          success: "https://berecardenascosmetologia.com/mis-cursos", // Cambiado a tu dominio final
+          failure: `https://berecardenascosmetologia.com/cursos/${courseId}`, // Cambiado a tu dominio final
+          pending: "https://berecardenascosmetologia.com/mis-cursos", // Cambiado a tu dominio final
         },
         auto_return: "approved",
         external_reference: `${userId}_${courseId}`,
+        // Asegúrate que tu webhook URL sea la correcta después del deploy
         notification_url: `https://us-central1-proyecto-bere.cloudfunctions.net/paymentWebhook`,
         metadata: {
-           coupon_code: appliedCouponCode
+           coupon_code: appliedCouponCode // Guardar el cupón usado
          }
       },
     });
@@ -166,6 +172,8 @@ export const createPaymentPreference = onCall({ cors: true }, async (request) =>
   }
 });
 
+// Nota: La lógica interna del webhook para confirmar el pago y la inscripción
+// aún necesita ser implementada si quieres automatizar la inscripción post-pago.
 export const paymentWebhook = onRequest(async (request, response) => {
   if (request.method !== "POST") {
     response.status(405).send("Método no permitido");
@@ -178,10 +186,11 @@ export const paymentWebhook = onRequest(async (request, response) => {
   if (paymentInfo?.type === 'payment' && paymentInfo?.data?.id) {
     const paymentId = paymentInfo.data.id;
     logger.info(`Procesando notificación para pago ID: ${paymentId}`);
-
+    // Aquí iría la lógica futura para verificar el pago con Mercado Pago
+    // y luego actualizar Firestore para inscribir al usuario.
   }
 
-  response.status(200).send("OK");
+  response.status(200).send("OK"); // Responder siempre OK a Mercado Pago
 });
 
 
@@ -196,6 +205,7 @@ export const manageUser = onCall({ cors: true }, async (request) => {
     switch (action) {
       case 'listUsers': {
         const userRecords = await admin.auth().listUsers();
+        // Filtrar para no incluir al propio admin/docente si se desea
         const users = userRecords.users.map((user) => ({
           uid: user.uid,
           email: user.email,
@@ -206,27 +216,36 @@ export const manageUser = onCall({ cors: true }, async (request) => {
       case 'updateUser': {
         const { uid, email, nombre, password } = data;
         const updateData: { email?: string; displayName?: string; password?: string } = {};
-        if (email) updateData.email = email;
+        if (email) updateData.email = email; // Cuidado al actualizar email, requiere verificación
         if (nombre) updateData.displayName = nombre;
         if (password) updateData.password = password;
 
-        await admin.auth().updateUser(uid, updateData);
-        if (nombre || email) {
-            const firestoreUpdate: {nombre?: string, email?: string} = {};
-            if (nombre) firestoreUpdate.nombre = nombre;
-            if (email) firestoreUpdate.email = email;
-            await db.collection('users').doc(uid).update(firestoreUpdate);
+        if (Object.keys(updateData).length > 0) {
+           await admin.auth().updateUser(uid, updateData);
         }
+
+        // Actualizar Firestore siempre si hay nombre o email (incluso si no cambiaron en Auth)
+        // para asegurar consistencia o si solo se actualizó nombre.
+        const firestoreUpdate: {nombre?: string, email?: string} = {};
+        if (nombre) firestoreUpdate.nombre = nombre;
+        // if (email) firestoreUpdate.email = email; // Podrías querer actualizar email en Firestore también
+
+        if (Object.keys(firestoreUpdate).length > 0) {
+           await db.collection('users').doc(uid).update(firestoreUpdate);
+        }
+
         return { success: true, message: 'Usuario actualizado correctamente.' };
       }
       case 'createUser': {
+         // Esta funcionalidad podría ser compleja (manejo de errores, roles, etc.)
+         // Considera si realmente necesitas crear usuarios desde aquí.
         const { email, password, nombre } = data;
         const userRecord = await admin.auth().createUser({ email, password, displayName: nombre });
         await db.collection('users').doc(userRecord.uid).set({
           uid: userRecord.uid,
           nombre: nombre,
           email: email,
-          rol: 'estudiante',
+          rol: 'estudiante', // Por defecto estudiante
           cursosInscritos: []
         });
         return { success: true, user: { uid: userRecord.uid, email, nombre } };
@@ -234,7 +253,10 @@ export const manageUser = onCall({ cors: true }, async (request) => {
       case 'deleteUser': {
         const { uid } = data;
         await admin.auth().deleteUser(uid);
+        // También eliminar el documento del usuario en Firestore
         await db.collection('users').doc(uid).delete();
+        // Considerar eliminar subcolecciones (progreso) si existen.
+        // Esto usualmente requiere una función específica o extensión de Firebase.
         return { success: true, message: 'Usuario eliminado correctamente.' };
       }
       default:

@@ -6,22 +6,42 @@ import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react'; // Importar useEffect y useRef
 import { AiOutlineMenu, AiOutlineClose } from 'react-icons/ai';
 
 const Navbar = () => {
   const { user } = useAuth();
   const router = useRouter();
   const [navIsOpen, setNavIsOpen] = useState(false);
+  const navRef = useRef<HTMLDivElement>(null); // Ref para el menú móvil
 
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      setNavIsOpen(false); // Cerrar menú al cerrar sesión
       router.push('/');
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
     }
   };
+
+  // Cerrar menú si se hace clic fuera de él
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (navRef.current && !navRef.current.contains(event.target as Node)) {
+        setNavIsOpen(false);
+      }
+    };
+    if (navIsOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [navIsOpen]);
+
 
   const NavLinks = () => (
     <>
@@ -85,34 +105,36 @@ const Navbar = () => {
           )}
         </div>
 
-        <div className="md:hidden">
-          <button onClick={() => setNavIsOpen(!navIsOpen)}>
-            {navIsOpen ? <AiOutlineClose size={25} className="text-text-primary" /> : <AiOutlineMenu size={25} className="text-text-primary" />}
-          </button>
+        {/* Botón de Menú Móvil - Asegúrate que esté dentro del nav para el ref */}
+         <div ref={navRef} className="md:hidden">
+            <button onClick={() => setNavIsOpen(!navIsOpen)} aria-label="Abrir menú">
+              {navIsOpen ? <AiOutlineClose size={25} className="text-text-primary" /> : <AiOutlineMenu size={25} className="text-text-primary" />}
+            </button>
+
+            {/* Panel de Menú Móvil */}
+            {navIsOpen && (
+            <div className="bg-surface absolute top-full right-0 w-64 border-l border-t border-primary/20 shadow-xl rounded-bl-lg">
+                <div className="px-6 pt-4 pb-6 flex flex-col items-start space-y-3">
+                <NavLinks />
+                <div className="mt-4 w-full">
+                    {user ? (
+                    <button
+                        onClick={handleLogout} // Llama a handleLogout que ya cierra el menú
+                        className="w-full text-left bg-surface text-text-primary border border-primary py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors"
+                    >
+                        Cerrar Sesión
+                    </button>
+                    ) : (
+                    <Link href="/login" onClick={() => setNavIsOpen(false)} className="block w-full text-center bg-primary text-background font-bold py-2 px-4 rounded-full hover:opacity-90 transition-opacity">
+                        Iniciar Sesión
+                    </Link>
+                    )}
+                </div>
+                </div>
+            </div>
+            )}
         </div>
       </nav>
-
-      {navIsOpen && (
-        <div className="md:hidden bg-surface absolute w-full left-0 border-t border-primary/20">
-          <div className="px-6 pt-2 pb-6 flex flex-col items-center space-y-4">
-            <NavLinks />
-            <div className="mt-4">
-              {user ? (
-                <button
-                  onClick={() => { handleLogout(); setNavIsOpen(false); }}
-                  className="bg-surface text-text-primary border border-primary py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors"
-                >
-                  Cerrar Sesión
-                </button>
-              ) : (
-                <Link href="/login" onClick={() => setNavIsOpen(false)} className="bg-primary text-background font-bold py-2 px-4 rounded-full hover:opacity-90 transition-opacity">
-                  Iniciar Sesión
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </header>
   );
 };
