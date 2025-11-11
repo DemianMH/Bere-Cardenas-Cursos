@@ -100,7 +100,7 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
         });
 
         // Actualizar el email en el documento de Firestore también
-        const userDocRef = doc(db, 'users', user.uid);
+        const userDocRef = doc(db, 'users', params.userId);
         await setDoc(userDocRef, { email: user.email }, { merge: true });
 
         alert('¡Usuario actualizado con éxito!');

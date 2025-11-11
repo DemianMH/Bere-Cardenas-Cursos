@@ -37,8 +37,8 @@ export const addAdminRole = onCall(async (request) => {
   const { email } = request.data;
   
   try {
-    //requireDocenteRole(request);
-    requireAuth(request);
+    requireDocenteRole(request);
+    
     if (!email || typeof email !== 'string') {
       throw new HttpsError('invalid-argument', 'Se necesita un email válido.');
     }
