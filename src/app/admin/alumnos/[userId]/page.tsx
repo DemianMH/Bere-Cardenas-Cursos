@@ -2,8 +2,9 @@
 
 "use client";
 import { useEffect, useState } from 'react';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+// Importamos setDoc
+import { doc, getDoc, setDoc, arrayUnion, arrayRemove, collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { db, app } from '@/lib/firebase'; // Importamos 'app'
 import { useRouter } from 'next/navigation';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
@@ -30,22 +31,40 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Cargar datos del usuario desde Firestore
+        // --- LÓGICA DE CARGA MEJORADA ---
+        
+        // 1. Cargar datos del usuario desde Firestore
         const userDocRef = doc(db, 'users', params.userId);
         const userSnap = await getDoc(userDocRef);
+        let userData: UserProfile;
 
-        // --- LÍNEA CORREGIDA ---
         if (userSnap.exists()) {
-          const userData = userSnap.data();
-          // Construimos el objeto explícitamente para que coincida con la interfaz UserProfile
-          setUser({
+          const data = userSnap.data();
+          userData = {
             uid: userSnap.id,
-            nombre: userData.nombre || '',
-            email: userData.email || '',
-            cursosInscritos: userData.cursosInscritos || [],
-          });
+            nombre: data.nombre || '',
+            email: data.email || '', // Firestore tiene el email
+            cursosInscritos: data.cursosInscritos || [],
+          };
+        } else {
+          // 2. Si no existe en Firestore, creamos un perfil "temporal"
+          //    con el UID y (opcionalmente) cargamos el email desde Auth.
+          //    Por ahora, lo creamos vacío para que la UI funcione.
+          userData = {
+            uid: params.userId,
+            nombre: '', // El admin lo puede llenar
+            email: 'Cargando...', // Pondremos el email de Auth
+            cursosInscritos: [],
+          };
+          
+          // (Opcional pero recomendado) Intentar obtener email desde Auth
+          // Esto requiere modificar la Cloud Function, por ahora usamos un placeholder
+          // Idealmente, llamarías a una función 'getUser'
         }
-        // --- FIN DE LA CORRECCIÓN ---
+
+        setUser(userData);
+
+        // --- FIN DE LÓGICA MEJORADA ---
 
         // Cargar todos los cursos disponibles
         const coursesQuery = query(collection(db, 'courses'), orderBy('order'));
@@ -66,8 +85,11 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
       if (!user) return;
       setIsSaving(true);
       try {
-        const functions = getFunctions();
+        const functions = getFunctions(app, 'us-central1'); // Especificar región
         const manageUser = httpsCallable(functions, 'manageUser');
+        
+        // Esta función (manageUser) ya usa setDoc con merge:true en el backend
+        // así que creará el documento si no existe.
         await manageUser({
             action: 'updateUser',
             data: {
@@ -76,6 +98,11 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
                 password: newPassword || undefined,
             },
         });
+
+        // Actualizar el email en el documento de Firestore también
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, { email: user.email }, { merge: true });
+
         alert('¡Usuario actualizado con éxito!');
         setNewPassword('');
       } catch (error) {
@@ -91,10 +118,22 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
     const userDocRef = doc(db, 'users', user.uid);
     try {
         if (isEnrolled) {
-            await updateDoc(userDocRef, { cursosInscritos: arrayRemove(courseId) });
+            // --- CORRECCIÓN AQUÍ ---
+            // Usamos setDoc con merge para evitar el error "No document to update"
+            await setDoc(userDocRef, { 
+              cursosInscritos: arrayRemove(courseId) 
+            }, { merge: true });
+            // --- FIN DE CORRECCIÓN ---
+            
             setUser(prev => prev ? ({ ...prev, cursosInscritos: prev.cursosInscritos.filter(id => id !== courseId) }) : null);
         } else {
-            await updateDoc(userDocRef, { cursosInscritos: arrayUnion(courseId) });
+            // --- CORRECCIÓN AQUÍ ---
+            // Usamos setDoc con merge para crear el doc si no existe
+            await setDoc(userDocRef, { 
+              cursosInscritos: arrayUnion(courseId) 
+            }, { merge: true });
+            // --- FIN DE CORRECCIÓN ---
+
             setUser(prev => prev ? ({ ...prev, cursosInscritos: [...prev.cursosInscritos, courseId] }) : null);
         }
     } catch (error) {
@@ -122,7 +161,8 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
             </div>
             <div>
               <label className="block text-text-secondary font-bold mb-2">Correo Electrónico</label>
-              <input type="email" value={user.email} disabled className="bg-gray-800 shadow border border-gray-700 rounded w-full py-2 px-3 text-gray-400 cursor-not-allowed" />
+              {/* Permitimos editar el email aquí para guardarlo en Firestore */}
+              <input type="email" value={user.email} onChange={(e) => setUser({...user, email: e.target.value})} className="bg-background shadow border border-gray-700 rounded w-full py-2 px-3 text-text-primary focus:outline-none focus:border-primary" />
             </div>
             <div>
               <label className="block text-text-secondary font-bold mb-2">Nueva Contraseña (opcional)</label>
