@@ -2,11 +2,12 @@
 
 "use client";
 import { useEffect, useState } from 'react';
-// Importamos setDoc
-import { doc, getDoc, setDoc, arrayUnion, arrayRemove, collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { db, app } from '@/lib/firebase'; // Importamos 'app'
+// CORRECCIÓN: Importamos setDoc
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, getDocs, query, orderBy, setDoc } from 'firebase/firestore';
+import { db, app } from '@/lib/firebase'; // Importamos app
 import { useRouter } from 'next/navigation';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { useAuth } from '@/context/AuthContext'; // <--- IMPORTAMOS useAuth
 
 interface UserProfile {
   uid: string;
@@ -20,7 +21,11 @@ interface Course {
 }
 
 export default function EditarAlumnoPage({ params }: { params: { userId: string } }) {
-  const [user, setUser] = useState<UserProfile | null>(null);
+  // --- CORRECCIÓN: Renombramos el usuario admin ---
+  const { user: adminUser } = useAuth(); // El admin logueado
+  const [student, setStudent] = useState<UserProfile | null>(null); // El alumno que estamos editando
+  // --- FIN CORRECCIÓN ---
+
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(true);
@@ -31,42 +36,28 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
     const fetchData = async () => {
       setLoading(true);
       try {
-        // --- LÓGICA DE CARGA MEJORADA ---
-        
-        // 1. Cargar datos del usuario desde Firestore
         const userDocRef = doc(db, 'users', params.userId);
         const userSnap = await getDoc(userDocRef);
-        let userData: UserProfile;
 
         if (userSnap.exists()) {
-          const data = userSnap.data();
-          userData = {
+          const userData = userSnap.data();
+          setStudent({ // Usamos setStudent
             uid: userSnap.id,
-            nombre: data.nombre || '',
-            email: data.email || '', // Firestore tiene el email
-            cursosInscritos: data.cursosInscritos || [],
-          };
+            nombre: userData.nombre || '',
+            email: userData.email || '',
+            cursosInscritos: userData.cursosInscritos || [],
+          });
         } else {
-          // 2. Si no existe en Firestore, creamos un perfil "temporal"
-          //    con el UID y (opcionalmente) cargamos el email desde Auth.
-          //    Por ahora, lo creamos vacío para que la UI funcione.
-          userData = {
+          // Si no existe, creamos un perfil temporal para editar
+          // (La función de 'listUsers' ya nos dio el email y UID)
+          setStudent({
             uid: params.userId,
-            nombre: '', // El admin lo puede llenar
-            email: 'Cargando...', // Pondremos el email de Auth
+            nombre: "Nombre no encontrado",
+            email: "Email no encontrado", // El admin puede llenarlo
             cursosInscritos: [],
-          };
-          
-          // (Opcional pero recomendado) Intentar obtener email desde Auth
-          // Esto requiere modificar la Cloud Function, por ahora usamos un placeholder
-          // Idealmente, llamarías a una función 'getUser'
+          });
         }
 
-        setUser(userData);
-
-        // --- FIN DE LÓGICA MEJORADA ---
-
-        // Cargar todos los cursos disponibles
         const coursesQuery = query(collection(db, 'courses'), orderBy('order'));
         const coursesSnapshot = await getDocs(coursesQuery);
         setAllCourses(coursesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Course)));
@@ -82,68 +73,60 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
 
   const handleUpdateUser = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!user) return;
+      if (!student) return; // Usamos student
       setIsSaving(true);
       try {
-        const functions = getFunctions(app, 'us-central1'); // Especificar región
+        const functions = getFunctions(app, 'us-central1');
         const manageUser = httpsCallable(functions, 'manageUser');
         
-        // Esta función (manageUser) ya usa setDoc con merge:true en el backend
-        // así que creará el documento si no existe.
         await manageUser({
             action: 'updateUser',
             data: {
-                uid: user.uid,
-                nombre: user.nombre,
+                uid: student.uid, // Usamos student.uid
+                nombre: student.nombre, // Usamos student.nombre
+                email: student.email, // Pasamos el email
                 password: newPassword || undefined,
             },
         });
-
-        // Actualizar el email en el documento de Firestore también
-        const userDocRef = doc(db, 'users', params.userId);
-        await setDoc(userDocRef, { email: user.email }, { merge: true });
-
         alert('¡Usuario actualizado con éxito!');
         setNewPassword('');
-      } catch (error) {
+      } catch (error: any) {
           console.error("Error al actualizar:", error);
-          alert('No se pudo actualizar el usuario.');
+          alert(`No se pudo actualizar el usuario: ${error.message}`);
       } finally {
           setIsSaving(false);
       }
   };
 
   const handleCourseToggle = async (courseId: string, isEnrolled: boolean) => {
-    if (!user) return;
-    const userDocRef = doc(db, 'users', user.uid);
+    if (!student) return; // Usamos student
+
+    // --- CORRECCIÓN: Usamos params.userId (o student.uid) ---
+    // NO usamos el UID del admin
+    const userDocRef = doc(db, 'users', student.uid);
+    // --- FIN CORRECCIÓN ---
+
     try {
         if (isEnrolled) {
-            // --- CORRECCIÓN AQUÍ ---
-            // Usamos setDoc con merge para evitar el error "No document to update"
-            await setDoc(userDocRef, { 
-              cursosInscritos: arrayRemove(courseId) 
-            }, { merge: true });
-            // --- FIN DE CORRECCIÓN ---
-            
-            setUser(prev => prev ? ({ ...prev, cursosInscritos: prev.cursosInscritos.filter(id => id !== courseId) }) : null);
+            // Usamos updateDoc porque ya sabemos que el doc existe (o se creará)
+            await updateDoc(userDocRef, { cursosInscritos: arrayRemove(courseId) });
+            setStudent(prev => prev ? ({ ...prev, cursosInscritos: prev.cursosInscritos.filter(id => id !== courseId) }) : null);
         } else {
-            // --- CORRECCIÓN AQUÍ ---
-            // Usamos setDoc con merge para crear el doc si no existe
+            // Usamos setDoc con merge:true para CREAR el doc si no existía
             await setDoc(userDocRef, { 
               cursosInscritos: arrayUnion(courseId) 
             }, { merge: true });
-            // --- FIN DE CORRECCIÓN ---
-
-            setUser(prev => prev ? ({ ...prev, cursosInscritos: [...prev.cursosInscritos, courseId] }) : null);
+            setStudent(prev => prev ? ({ ...prev, cursosInscritos: [...prev.cursosInscritos, courseId] }) : null);
         }
-    } catch (error) {
+    } catch (error: any) {
+        // Este es el error que te debería aparecer
         console.error("Error al cambiar inscripción:", error);
         alert('No se pudo actualizar la inscripción.');
     }
   };
   
   if (loading) return <p className="text-center mt-12">Cargando datos del alumno...</p>;
-  if (!user) return <p className="text-center mt-12">Alumno no encontrado.</p>;
+  if (!student) return <p className="text-center mt-12">Alumno no encontrado.</p>;
 
   return (
     <div className="container mx-auto px-6 py-12">
@@ -157,12 +140,11 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
           <form onSubmit={handleUpdateUser} className="space-y-6">
             <div>
               <label className="block text-text-secondary font-bold mb-2">Nombre Completo</label>
-              <input type="text" value={user.nombre} onChange={(e) => setUser({...user, nombre: e.target.value})} className="bg-background shadow border border-gray-700 rounded w-full py-2 px-3 text-text-primary focus:outline-none focus:border-primary" />
+              <input type="text" value={student.nombre} onChange={(e) => setStudent({...student, nombre: e.target.value})} className="bg-background shadow border border-gray-700 rounded w-full py-2 px-3 text-text-primary focus:outline-none focus:border-primary" />
             </div>
             <div>
               <label className="block text-text-secondary font-bold mb-2">Correo Electrónico</label>
-              {/* Permitimos editar el email aquí para guardarlo en Firestore */}
-              <input type="email" value={user.email} onChange={(e) => setUser({...user, email: e.target.value})} className="bg-background shadow border border-gray-700 rounded w-full py-2 px-3 text-text-primary focus:outline-none focus:border-primary" />
+              <input type="email" value={student.email} onChange={(e) => setStudent({...student, email: e.target.value})} className="bg-background shadow border border-gray-700 rounded w-full py-2 px-3 text-text-primary focus:outline-none focus:border-primary" />
             </div>
             <div>
               <label className="block text-text-secondary font-bold mb-2">Nueva Contraseña (opcional)</label>
@@ -179,7 +161,7 @@ export default function EditarAlumnoPage({ params }: { params: { userId: string 
           <h2 className="text-2xl font-bold text-primary mb-6">Gestionar Cursos</h2>
           <div className="space-y-3">
             {allCourses.map(course => {
-              const isEnrolled = user.cursosInscritos.includes(course.id);
+              const isEnrolled = student.cursosInscritos.includes(course.id);
               return (
                 <div key={course.id} className="flex justify-between items-center bg-background p-3 rounded-md">
                   <span className="text-text-secondary">{course.title}</span>
