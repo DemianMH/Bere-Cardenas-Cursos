@@ -32,8 +32,8 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
 
-  const dragItem = useRef<number | null>(null); // Índice de la lección arrastrada
-  const dragOverItem = useRef<number | null>(null); // Índice sobre el que se arrastra
+  const dragItem = useRef<number | null>(null); 
+  const dragOverItem = useRef<number | null>(null); 
 
   const videoInputRef = useRef<HTMLInputElement>(null);
   const supportInputRef = useRef<HTMLInputElement>(null);
@@ -44,21 +44,37 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
     setLoadingLessons(true);
     try {
       const lessonsRef = collection(db, `courses/${params.courseId}/lessons`);
-      // CAMBIO: Ordenamos por el campo 'order' primero
-      const q = query(lessonsRef, orderBy('order', 'asc'), orderBy('createdAt', 'asc')); 
-      const querySnapshot = await getDocs(q);
-      const lessonsData = querySnapshot.docs.map(doc => ({ 
+      // HACK: Firebase no permite consultas con OR ni ordenar por campo que no existe.
+      // Solución: Cargar todos los docs y ordenar en cliente para manejar el campo 'order' que puede faltar.
+      const querySnapshot = await getDocs(lessonsRef);
+      let lessonsData = querySnapshot.docs.map(doc => ({ 
           id: doc.id, 
-          order: doc.data().order || 999, // Aseguramos un 'order' para ordenar
+          // Si 'order' no existe, le asignamos 9999 para que vaya al final de la lista de ordenamiento local, 
+          // así aseguramos que no se pierdan.
+          order: doc.data().order ?? 9999, 
           ...doc.data() 
       })) as Lesson[];
+
+      // Ordenar localmente: primero por 'order', luego por 'createdAt' para consistencia
+      lessonsData.sort((a, b) => {
+        if (a.order !== b.order) {
+          return a.order - b.order;
+        }
+        // Fallback: usar timestamp si el orden es igual
+        const aTime = a.createdAt?.seconds || 0;
+        const bTime = b.createdAt?.seconds || 0;
+        return aTime - bTime;
+      });
+
       setExistingLessons(lessonsData);
     } catch (error) {
       console.error("Error cargando el temario:", error);
+      setError("Error al cargar el temario. Revisa la consola.");
     } finally {
       setLoadingLessons(false);
     }
   };
+
 
   useEffect(() => {
     fetchLessons();
@@ -167,22 +183,19 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
   const handleDragEnd = useCallback((e: React.DragEvent<HTMLLIElement>) => {
     e.currentTarget.style.opacity = '1';
     
-    // Si no hay item arrastrado o no hay destino, no hacer nada
-    if (dragItem.current === null || dragOverItem.current === null) return;
-    
-    // Si el item arrastrado y el destino son el mismo, no hacer nada
-    if (dragItem.current === dragOverItem.current) return;
+    if (dragItem.current === null || dragOverItem.current === null || dragItem.current === dragOverItem.current) return;
     
     const newLessons = [...existingLessons];
     const draggedItemContent = newLessons[dragItem.current];
     
     // Mover el item
-    newLessons.splice(dragItem.current, 1); // Quitar el arrastrado
-    newLessons.splice(dragOverItem.current, 0, draggedItemContent); // Insertar en el nuevo lugar
+    newLessons.splice(dragItem.current, 1);
+    newLessons.splice(dragOverItem.current, 0, draggedItemContent);
 
     dragItem.current = null;
     dragOverItem.current = null;
     
+    // Asignar el nuevo array al estado local, listo para guardar
     setExistingLessons(newLessons);
   }, [existingLessons]);
 
@@ -191,7 +204,7 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
     try {
       const updates = existingLessons.map((lesson, index) => ({
         id: lesson.id,
-        order: index + 1 // El nuevo orden es la posición en el array + 1
+        order: index + 1
       }));
       
       const functions = getFunctions(app, 'us-central1');
@@ -201,8 +214,8 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
 
       if (result.data.success) {
         alert('Orden guardado con éxito.');
-        // Opcional: recargar solo para confirmar la nueva lista
-        // await fetchLessons();
+        // Refrescar la lista forzando a que se lea el nuevo orden de Firestore
+        await fetchLessons(); 
       } else {
         throw new Error(result.data.message || 'Error al guardar el orden.');
       }
@@ -228,7 +241,7 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
             <h2 className="text-2xl font-bold text-primary">Temario del Curso</h2>
             <button
                 onClick={handleSaveOrder}
-                disabled={isSavingOrder}
+                disabled={isSavingOrder || existingLessons.length === 0}
                 className="bg-green-600/20 text-green-300 font-bold py-2 px-4 rounded-full text-sm hover:bg-green-500 hover:text-white transition-colors disabled:opacity-50"
             >
                 {isSavingOrder ? 'Guardando Orden...' : 'Guardar Nuevo Orden'}
