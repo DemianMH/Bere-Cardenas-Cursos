@@ -21,6 +21,14 @@ interface CourseDetails {
   price?: number;
 }
 
+// Función auxiliar para determinar si es un archivo que se puede abrir directamente en el navegador
+const canPreview = (url: string | undefined): boolean => {
+  if (!url) return false;
+  const extension = url.split('.').pop()?.toLowerCase();
+  return ['pdf', 'jpg', 'jpeg', 'png', 'gif'].includes(extension || '');
+};
+
+
 export default function CoursePage({ params }: { params: { courseId: string } }) {
   const { user } = useAuth();
   const router = useRouter();
@@ -41,6 +49,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
 
 
   useEffect(() => {
+    // CAMBIO: Aseguramos que el curso se ordene por 'order'
     const checkEnrollment = user?.cursosInscritos?.includes(params.courseId) || user?.rol === 'docente';
     setIsEnrolled(checkEnrollment);
 
@@ -55,7 +64,8 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         }
 
         const lessonsColRef = collection(db, `courses/${params.courseId}/lessons`);
-        const q = query(lessonsColRef, orderBy('createdAt', 'asc'));
+        // CAMBIO: Ordenamos por 'order' para mostrar la lista en el orden correcto
+        const q = query(lessonsColRef, orderBy('order', 'asc'), orderBy('createdAt', 'asc')); 
         const lessonsSnapshot = await getDocs(q);
         const lessonsData = lessonsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Lesson[];
         setLessons(lessonsData);
@@ -216,19 +226,27 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                     </div>
                   )}
                 </div>
-                 {selectedLesson.textContent && selectedLesson.videoUrl && (
+                 {selectedLesson.textContent && (
                     <div className="mt-4 p-4 bg-background rounded">
                         <h3 className="text-xl font-semibold text-primary mb-2">Material de Lectura</h3>
                         <p className="text-text-secondary whitespace-pre-wrap">{selectedLesson.textContent}</p>
                     </div>
                 )}
+                {/* INICIO DEL CAMBIO PARA BOTÓN DE PREVISUALIZACIÓN/DESCARGA */}
                 {selectedLesson.supportMaterialUrl && (
                   <div className="mt-4">
-                    <a href={selectedLesson.supportMaterialUrl} target="_blank" rel="noopener noreferrer" className="inline-block bg-primary/20 text-primary font-bold py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors">
-                      Descargar Material de Apoyo
-                    </a>
+                    {canPreview(selectedLesson.supportMaterialUrl) ? (
+                      <a href={selectedLesson.supportMaterialUrl} target="_blank" rel="noopener noreferrer" className="inline-block bg-primary/20 text-primary font-bold py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors">
+                        Ver Material de Apoyo
+                      </a>
+                    ) : (
+                      <a href={selectedLesson.supportMaterialUrl} download target="_blank" rel="noopener noreferrer" className="inline-block bg-primary/20 text-primary font-bold py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors">
+                        Descargar Material de Apoyo
+                      </a>
+                    )}
                   </div>
                 )}
+                 {/* FIN DEL CAMBIO PARA BOTÓN DE PREVISUALIZACIÓN/DESCARGA */}
               </div>
             ) : (
               <div className="bg-background border border-primary/50 p-8 rounded-lg text-center">

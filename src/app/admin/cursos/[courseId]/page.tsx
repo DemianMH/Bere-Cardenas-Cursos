@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { db, storage } from '@/lib/firebase';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { db, storage, app } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, query, orderBy, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useRouter } from 'next/navigation';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 interface Lesson {
   id: string;
@@ -14,6 +15,7 @@ interface Lesson {
   supportMaterialUrl?: string;
   type?: 'video' | 'text';
   createdAt: any;
+  order: number; // Añadimos el campo de orden
 }
 
 export default function AdminEditLessonPage({ params }: { params: { courseId: string } }) {
@@ -28,6 +30,10 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
   const [error, setError] = useState<string | null>(null);
   
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+
+  const dragItem = useRef<number | null>(null); // Índice de la lección arrastrada
+  const dragOverItem = useRef<number | null>(null); // Índice sobre el que se arrastra
 
   const videoInputRef = useRef<HTMLInputElement>(null);
   const supportInputRef = useRef<HTMLInputElement>(null);
@@ -38,9 +44,14 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
     setLoadingLessons(true);
     try {
       const lessonsRef = collection(db, `courses/${params.courseId}/lessons`);
-      const q = query(lessonsRef, orderBy('createdAt', 'asc'));
+      // CAMBIO: Ordenamos por el campo 'order' primero
+      const q = query(lessonsRef, orderBy('order', 'asc'), orderBy('createdAt', 'asc')); 
       const querySnapshot = await getDocs(q);
-      const lessonsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Lesson[];
+      const lessonsData = querySnapshot.docs.map(doc => ({ 
+          id: doc.id, 
+          order: doc.data().order || 999, // Aseguramos un 'order' para ordenar
+          ...doc.data() 
+      })) as Lesson[];
       setExistingLessons(lessonsData);
     } catch (error) {
       console.error("Error cargando el temario:", error);
@@ -109,13 +120,15 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
         const uploadResult = await uploadBytes(supportRef, supportFile);
         supportMaterialUrl = await getDownloadURL(uploadResult.ref);
       }
-
+      
       const lessonData = {
         title: lessonTitle,
         textContent: textContent,
         videoUrl: videoUrl || null,
         supportMaterialUrl: supportMaterialUrl || null,
         type: videoFile || videoUrl ? 'video' : 'text',
+        // Si es nueva lección, asigna el último orden + 1, sino mantén el que tiene
+        order: editingLesson ? editingLesson.order : (existingLessons.length > 0 ? Math.max(...existingLessons.map(l => l.order)) + 1 : 1),
       };
 
       if (editingLesson) {
@@ -140,6 +153,68 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
       if (supportInputRef.current) supportInputRef.current.value = "";
     }
   };
+  
+  // --- Lógica de Drag and Drop ---
+  const handleDragStart = useCallback((e: React.DragEvent<HTMLLIElement>, index: number) => {
+    dragItem.current = index;
+    e.currentTarget.style.opacity = '0.4';
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLLIElement>, index: number) => {
+    dragOverItem.current = index;
+  }, []);
+
+  const handleDragEnd = useCallback((e: React.DragEvent<HTMLLIElement>) => {
+    e.currentTarget.style.opacity = '1';
+    
+    // Si no hay item arrastrado o no hay destino, no hacer nada
+    if (dragItem.current === null || dragOverItem.current === null) return;
+    
+    // Si el item arrastrado y el destino son el mismo, no hacer nada
+    if (dragItem.current === dragOverItem.current) return;
+    
+    const newLessons = [...existingLessons];
+    const draggedItemContent = newLessons[dragItem.current];
+    
+    // Mover el item
+    newLessons.splice(dragItem.current, 1); // Quitar el arrastrado
+    newLessons.splice(dragOverItem.current, 0, draggedItemContent); // Insertar en el nuevo lugar
+
+    dragItem.current = null;
+    dragOverItem.current = null;
+    
+    setExistingLessons(newLessons);
+  }, [existingLessons]);
+
+  const handleSaveOrder = async () => {
+    setIsSavingOrder(true);
+    try {
+      const updates = existingLessons.map((lesson, index) => ({
+        id: lesson.id,
+        order: index + 1 // El nuevo orden es la posición en el array + 1
+      }));
+      
+      const functions = getFunctions(app, 'us-central1');
+      const updateLessonOrderFn = httpsCallable(functions, 'updateLessonOrder');
+      
+      const result: any = await updateLessonOrderFn({ courseId: params.courseId, updates });
+
+      if (result.data.success) {
+        alert('Orden guardado con éxito.');
+        // Opcional: recargar solo para confirmar la nueva lista
+        // await fetchLessons();
+      } else {
+        throw new Error(result.data.message || 'Error al guardar el orden.');
+      }
+    } catch (error) {
+      console.error("Error al guardar el orden:", error);
+      alert('No se pudo guardar el nuevo orden del temario.');
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
+  // --- Fin Lógica de Drag and Drop ---
+
 
   return (
     <div className="container mx-auto px-6 py-12">
@@ -149,16 +224,37 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
       </h1>
 
       <div className="bg-surface p-8 rounded-lg shadow-lg max-w-3xl mx-auto border border-primary/20 mb-8">
-        <h2 className="text-2xl font-bold text-primary mb-4">Temario del Curso</h2>
+        <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-primary">Temario del Curso</h2>
+            <button
+                onClick={handleSaveOrder}
+                disabled={isSavingOrder}
+                className="bg-green-600/20 text-green-300 font-bold py-2 px-4 rounded-full text-sm hover:bg-green-500 hover:text-white transition-colors disabled:opacity-50"
+            >
+                {isSavingOrder ? 'Guardando Orden...' : 'Guardar Nuevo Orden'}
+            </button>
+        </div>
+        
         {loadingLessons ? <p className="text-text-secondary">Cargando...</p> : (
           <ul className="space-y-3">
             {existingLessons.length > 0 ? (
-              existingLessons.map(lesson => (
-                <li key={lesson.id} className="flex justify-between items-center bg-background p-3 rounded-md">
-                  <span className="text-text-secondary">{lesson.title}</span>
+              existingLessons.map((lesson, index) => (
+                <li 
+                  key={lesson.id} 
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragEnter={(e) => handleDragEnter(e, index)}
+                  onDragEnd={handleDragEnd}
+                  onDragOver={(e) => e.preventDefault()}
+                  className="flex justify-between items-center bg-background p-3 rounded-md cursor-grab active:cursor-grabbing border border-gray-700 hover:border-primary/50 transition-colors"
+                >
+                  <span className="text-text-secondary">
+                    <strong className="mr-2">{index + 1}.</strong> 
+                    {lesson.title}
+                  </span>
                   <div className="flex gap-3">
-                    <button onClick={() => handleSelectForEdit(lesson)} className="text-xs text-blue-400 hover:underline">Editar</button>
-                    <button onClick={() => handleDelete(lesson.id)} className="text-xs text-red-400 hover:underline">Eliminar</button>
+                    <button type="button" onClick={() => handleSelectForEdit(lesson)} className="text-xs text-blue-400 hover:underline">Editar</button>
+                    <button type="button" onClick={() => handleDelete(lesson.id)} className="text-xs text-red-400 hover:underline">Eliminar</button>
                   </div>
                 </li>
               ))

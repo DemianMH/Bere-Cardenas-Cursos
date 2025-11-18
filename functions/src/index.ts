@@ -320,3 +320,32 @@ export const paymentWebhook = onRequest(async (request, response) => {
     response.status(200).send('OK');
   }
 });
+
+export const updateLessonOrder = onCall(async (request) => {
+  try {
+    requireDocenteRole(request);
+    const { courseId, updates } = request.data;
+
+    if (!courseId || typeof courseId !== 'string' || !Array.isArray(updates)) {
+      throw new HttpsError('invalid-argument', 'Datos de actualización inválidos.');
+    }
+
+    const batch = db.batch();
+    const lessonsRef = db.collection(`courses/${courseId}/lessons`);
+
+    for (const update of updates) {
+      if (update.id && typeof update.order === 'number') {
+        const lessonDocRef = lessonsRef.doc(update.id);
+        batch.update(lessonDocRef, { order: update.order });
+      }
+    }
+
+    await batch.commit();
+    logger.info(`Orden de lecciones actualizado en el curso ${courseId}.`);
+    return { success: true, message: 'Orden de lecciones actualizado con éxito.' };
+  } catch (error: any) {
+    logger.error(`Error al actualizar el orden de lecciones:`, error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError('internal', error.message || 'Error interno al actualizar el orden.');
+  }
+});
