@@ -14,6 +14,9 @@ interface Lesson {
   videoUrl?: string;
   textContent?: string;
   supportMaterialUrl?: string;
+  // Añadimos 'order' para el ordenamiento
+  order?: number;
+  createdAt?: { seconds: number; nanoseconds: number };
 }
 interface CourseDetails {
   title: string;
@@ -49,7 +52,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
 
 
   useEffect(() => {
-    // CAMBIO: Aseguramos que el curso se ordene por 'order'
     const checkEnrollment = user?.cursosInscritos?.includes(params.courseId) || user?.rol === 'docente';
     setIsEnrolled(checkEnrollment);
 
@@ -64,10 +66,28 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         }
 
         const lessonsColRef = collection(db, `courses/${params.courseId}/lessons`);
-        // CAMBIO: Ordenamos por 'order' para mostrar la lista en el orden correcto
-        const q = query(lessonsColRef, orderBy('order', 'asc'), orderBy('createdAt', 'asc')); 
+        
+        // CAMBIO CRÍTICO: Cargar todas las lecciones y ordenar en el cliente
+        const q = query(lessonsColRef, orderBy('createdAt', 'asc')); 
         const lessonsSnapshot = await getDocs(q);
-        const lessonsData = lessonsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Lesson[];
+        
+        let lessonsData = lessonsSnapshot.docs.map(doc => ({ 
+            id: doc.id, 
+            order: doc.data().order ?? 9999, // Usar 9999 si no hay 'order'
+            ...doc.data() 
+        })) as Lesson[];
+
+        // Ordenar localmente por 'order' (el campo nuevo) y luego por 'createdAt' (el orden original)
+        lessonsData.sort((a, b) => {
+            if ((a.order ?? 9999) !== (b.order ?? 9999)) {
+                return (a.order ?? 9999) - (b.order ?? 9999);
+            }
+            // Fallback: usar timestamp si el orden es igual
+            const aTime = a.createdAt?.seconds || 0;
+            const bTime = b.createdAt?.seconds || 0;
+            return aTime - bTime;
+        });
+        
         setLessons(lessonsData);
 
         if (checkEnrollment && user) {
@@ -232,7 +252,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                         <p className="text-text-secondary whitespace-pre-wrap">{selectedLesson.textContent}</p>
                     </div>
                 )}
-                {/* INICIO DEL CAMBIO PARA BOTÓN DE PREVISUALIZACIÓN/DESCARGA */}
                 {selectedLesson.supportMaterialUrl && (
                   <div className="mt-4">
                     {canPreview(selectedLesson.supportMaterialUrl) ? (
@@ -246,7 +265,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                     )}
                   </div>
                 )}
-                 {/* FIN DEL CAMBIO PARA BOTÓN DE PREVISUALIZACIÓN/DESCARGA */}
               </div>
             ) : (
               <div className="bg-background border border-primary/50 p-8 rounded-lg text-center">
@@ -364,6 +382,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                 </li>
               );
             })}
+             {/* CAMBIO: Muestra un mensaje más claro si no hay lecciones cargadas */}
              {lessons.length === 0 && !loading && (
                  <li className="p-3 text-text-secondary/70">Aún no hay lecciones en este curso.</li>
              )}
