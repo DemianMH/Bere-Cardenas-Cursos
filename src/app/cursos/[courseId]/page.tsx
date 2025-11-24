@@ -55,6 +55,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     const fetchCourseContent = async () => {
       setLoading(true);
       try {
+        // 1. Cargar detalles del curso
         const courseDocRef = doc(db, 'courses', params.courseId);
         const courseSnap = await getDoc(courseDocRef);
         if (courseSnap.exists()) {
@@ -62,20 +63,27 @@ export default function CoursePage({ params }: { params: { courseId: string } })
           setCourse(courseData);
         }
 
+        // 2. Cargar lecciones
         const lessonsColRef = collection(db, `courses/${params.courseId}/lessons`);
-        const q = query(lessonsColRef, orderBy('createdAt', 'asc'));
-        const lessonsSnapshot = await getDocs(q);
+        
+        // --- CORRECCIÓN: Quitamos orderBy de la consulta para traer TODAS las lecciones ---
+        // Antes: const q = query(lessonsColRef, orderBy('createdAt', 'asc'));
+        // Ahora: Traemos todo y ordenamos abajo.
+        const lessonsSnapshot = await getDocs(lessonsColRef);
         
         let lessonsData = lessonsSnapshot.docs.map(doc => ({ 
             id: doc.id, 
-            order: doc.data().order ?? 9999,
+            order: doc.data().order ?? 9999, // Si no tiene orden, lo mandamos al final
             ...doc.data() 
         })) as Lesson[];
 
+        // 3. Ordenamiento robusto en el cliente
         lessonsData.sort((a, b) => {
+            // Primero por orden manual
             if ((a.order ?? 9999) !== (b.order ?? 9999)) {
                 return (a.order ?? 9999) - (b.order ?? 9999);
             }
+            // Luego por fecha (si existe)
             const aTime = a.createdAt?.seconds || 0;
             const bTime = b.createdAt?.seconds || 0;
             return aTime - bTime;
@@ -83,6 +91,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         
         setLessons(lessonsData);
 
+        // 4. Cargar progreso y seleccionar lección inicial
         if (checkEnrollment && user) {
           const progressDocRef = doc(db, 'users', user.uid, 'progress', params.courseId);
           const progressSnap = await getDoc(progressDocRef);
@@ -356,7 +365,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
             {lessons.map((lesson, index) => {
               const isCompleted = completedLessons.includes(lesson.id);
               
-              // --- CAMBIO APLICADO: isUnlocked SIEMPRE es true ---
+              // Siempre desbloqueado para inscritos
               const isUnlocked = true; 
 
               return (
@@ -370,7 +379,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                   <span className="flex-grow mr-2"><span className="font-semibold">Lección {index + 1}:</span> {lesson.title}</span>
                   {isCompleted && <CheckmarkIcon className="w-5 h-5 text-green-400 flex-shrink-0" />}
                   
-                  {/* ELIMINADO el candado visualmente si isUnlocked es true */}
+                  {/* Solo muestra candado si isUnlocked es falso (que no lo es) y está inscrito */}
                   {!isUnlocked && isEnrolled && <span className="text-xs text-gray-500 flex-shrink-0">🔒</span>}
                 </li>
               );
