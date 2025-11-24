@@ -8,15 +8,14 @@ import { useRouter } from 'next/navigation';
 import { CheckmarkIcon } from '@/app/components/CheckmarkIcon';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
-// Interfaz corregida para evitar errores de TypeScript
 interface Lesson {
   id: string;
   title: string;
   videoUrl?: string;
   textContent?: string;
   supportMaterialUrl?: string;
-  order?: number; 
-  createdAt?: any; 
+  order?: number;
+  createdAt?: any;
 }
 
 interface CourseDetails {
@@ -25,7 +24,6 @@ interface CourseDetails {
   price?: number;
 }
 
-// Función para detectar archivos previsualizables (PDF, imágenes)
 const canPreview = (url: string | undefined): boolean => {
   if (!url) return false;
   const extension = url.split('.').pop()?.toLowerCase();
@@ -50,7 +48,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [transferPhone, setTransferPhone] = useState('');
   const [transferRequestSent, setTransferRequestSent] = useState(false);
 
-
   useEffect(() => {
     const checkEnrollment = user?.cursosInscritos?.includes(params.courseId) || user?.rol === 'docente';
     setIsEnrolled(checkEnrollment);
@@ -58,7 +55,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     const fetchCourseContent = async () => {
       setLoading(true);
       try {
-        // 1. Cargar detalles del curso
         const courseDocRef = doc(db, 'courses', params.courseId);
         const courseSnap = await getDoc(courseDocRef);
         if (courseSnap.exists()) {
@@ -66,20 +62,16 @@ export default function CoursePage({ params }: { params: { courseId: string } })
           setCourse(courseData);
         }
 
-        // 2. Cargar lecciones
         const lessonsColRef = collection(db, `courses/${params.courseId}/lessons`);
-        // Cargamos ordenado por creación para tener una base
-        const q = query(lessonsColRef, orderBy('createdAt', 'asc')); 
+        const q = query(lessonsColRef, orderBy('createdAt', 'asc'));
         const lessonsSnapshot = await getDocs(q);
         
         let lessonsData = lessonsSnapshot.docs.map(doc => ({ 
             id: doc.id, 
-            // Si no tiene 'order', usamos 9999 para ponerlo al final temporalmente
             order: doc.data().order ?? 9999,
             ...doc.data() 
         })) as Lesson[];
 
-        // 3. Ordenamiento robusto (primero por 'order', luego por fecha)
         lessonsData.sort((a, b) => {
             if ((a.order ?? 9999) !== (b.order ?? 9999)) {
                 return (a.order ?? 9999) - (b.order ?? 9999);
@@ -91,14 +83,12 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         
         setLessons(lessonsData);
 
-        // 4. Cargar progreso del usuario si está inscrito
         if (checkEnrollment && user) {
           const progressDocRef = doc(db, 'users', user.uid, 'progress', params.courseId);
           const progressSnap = await getDoc(progressDocRef);
           const userProgress = progressSnap.exists() ? progressSnap.data().completedLessons || [] : [];
           setCompletedLessons(userProgress);
 
-          // Seleccionar la primera lección por defecto al cargar
           if (lessonsData.length > 0) {
              setSelectedLesson(lessonsData[0]);
           }
@@ -111,7 +101,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     };
     if (params.courseId) fetchCourseContent();
   }, [params.courseId, user]);
-
 
   const handlePayment = async () => {
     if (!user) {
@@ -177,7 +166,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     }
   };
 
-
   const handleTransferRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
@@ -211,7 +199,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     }
   };
 
-
   const handleVideoProgress = async (event: React.SyntheticEvent<HTMLVideoElement, Event>) => {
     if (!user || !selectedLesson || completedLessons.includes(selectedLesson.id)) return;
     const video = event.currentTarget;
@@ -233,15 +220,12 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col lg:flex-row gap-8">
-        {/* Panel Principal de Contenido (Izquierda) */}
         <main className="w-full lg:w-2/3">
           <div className="bg-surface p-6 rounded-lg shadow-lg border border-primary/20">
             <h1 className="text-4xl font-bold text-primary mb-4">{course.title}</h1>
             <p className="text-text-secondary mb-6">{course.description}</p>
-            
             {isEnrolled && selectedLesson ? (
               <div>
-                {/* Reproductor de Video o Contenido Principal */}
                 <div className="aspect-video mb-6 bg-background rounded-lg">
                   <h2 className="text-2xl font-bold text-text-primary mb-4 px-2 pt-2">{selectedLesson.title}</h2>
                   {selectedLesson.videoUrl ? (
@@ -252,16 +236,12 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                     </div>
                   )}
                 </div>
-                
-                {/* Material de Lectura (Texto) */}
                  {selectedLesson.textContent && (
                     <div className="mt-4 p-4 bg-background rounded">
                         <h3 className="text-xl font-semibold text-primary mb-2">Material de Lectura</h3>
                         <p className="text-text-secondary whitespace-pre-wrap">{selectedLesson.textContent}</p>
                     </div>
                 )}
-
-                {/* Botón de Material de Apoyo */}
                 {selectedLesson.supportMaterialUrl && (
                   <div className="mt-4">
                     {canPreview(selectedLesson.supportMaterialUrl) ? (
@@ -277,7 +257,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                 )}
               </div>
             ) : (
-              // Panel de Inscripción (si no está inscrito)
               <div className="bg-background border border-primary/50 p-8 rounded-lg text-center">
                 <h2 className="text-2xl font-bold text-primary mb-2">Inscríbete para Acceder al Contenido Completo</h2>
                 {course.price && course.price > 0 && (
@@ -285,7 +264,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                     ${course.price} MXN
                   </p>
                 )}
-
 
                 {!showTransferDetails && !transferRequestSent && (
                   <>
@@ -372,17 +350,12 @@ export default function CoursePage({ params }: { params: { courseId: string } })
             )}
           </div>
         </main>
-        
-        {/* Barra Lateral (Derecha) - Temario */}
         <aside className="w-full lg:w-1/3 bg-surface p-4 rounded-lg shadow-lg border border-primary/20 h-fit">
           <h2 className="text-2xl font-bold text-primary mb-4">Temario del Curso</h2>
           <ul>
             {lessons.map((lesson, index) => {
               const isCompleted = completedLessons.includes(lesson.id);
-              
-              // --- CAMBIO: Siempre desbloqueado para inscritos ---
-              const isUnlocked = true; 
-              // --------------------------------------------------
+              const isUnlocked = true;
 
               return (
                 <li key={lesson.id}
@@ -394,8 +367,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                 >
                   <span className="flex-grow mr-2"><span className="font-semibold">Lección {index + 1}:</span> {lesson.title}</span>
                   {isCompleted && <CheckmarkIcon className="w-5 h-5 text-green-400 flex-shrink-0" />}
-                  
-                  {/* El candado ya no se renderiza si está inscrito */}
                   {!isUnlocked && isEnrolled && <span className="text-xs text-gray-500 flex-shrink-0">🔒</span>}
                 </li>
               );
