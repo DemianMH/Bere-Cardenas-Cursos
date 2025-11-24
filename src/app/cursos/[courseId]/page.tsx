@@ -14,23 +14,21 @@ interface Lesson {
   videoUrl?: string;
   textContent?: string;
   supportMaterialUrl?: string;
-  // Añadimos 'order' para el ordenamiento
   order?: number;
-  createdAt?: { seconds: number; nanoseconds: number };
+  createdAt?: any;
 }
+
 interface CourseDetails {
   title: string;
   description: string;
   price?: number;
 }
 
-// Función auxiliar para determinar si es un archivo que se puede abrir directamente en el navegador
 const canPreview = (url: string | undefined): boolean => {
   if (!url) return false;
   const extension = url.split('.').pop()?.toLowerCase();
   return ['pdf', 'jpg', 'jpeg', 'png', 'gif'].includes(extension || '');
 };
-
 
 export default function CoursePage({ params }: { params: { courseId: string } }) {
   const { user } = useAuth();
@@ -50,7 +48,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [transferPhone, setTransferPhone] = useState('');
   const [transferRequestSent, setTransferRequestSent] = useState(false);
 
-
   useEffect(() => {
     const checkEnrollment = user?.cursosInscritos?.includes(params.courseId) || user?.rol === 'docente';
     setIsEnrolled(checkEnrollment);
@@ -66,23 +63,19 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         }
 
         const lessonsColRef = collection(db, `courses/${params.courseId}/lessons`);
-        
-        // CAMBIO CRÍTICO: Cargar todas las lecciones y ordenar en el cliente
-        const q = query(lessonsColRef, orderBy('createdAt', 'asc')); 
+        const q = query(lessonsColRef, orderBy('createdAt', 'asc'));
         const lessonsSnapshot = await getDocs(q);
         
         let lessonsData = lessonsSnapshot.docs.map(doc => ({ 
             id: doc.id, 
-            order: doc.data().order ?? 9999, // Usar 9999 si no hay 'order'
+            order: doc.data().order ?? 9999,
             ...doc.data() 
         })) as Lesson[];
 
-        // Ordenar localmente por 'order' (el campo nuevo) y luego por 'createdAt' (el orden original)
         lessonsData.sort((a, b) => {
             if ((a.order ?? 9999) !== (b.order ?? 9999)) {
                 return (a.order ?? 9999) - (b.order ?? 9999);
             }
-            // Fallback: usar timestamp si el orden es igual
             const aTime = a.createdAt?.seconds || 0;
             const bTime = b.createdAt?.seconds || 0;
             return aTime - bTime;
@@ -96,8 +89,9 @@ export default function CoursePage({ params }: { params: { courseId: string } })
           const userProgress = progressSnap.exists() ? progressSnap.data().completedLessons || [] : [];
           setCompletedLessons(userProgress);
 
-          const firstUncompletedLesson = lessonsData.find(lesson => !userProgress.includes(lesson.id));
-          setSelectedLesson(firstUncompletedLesson || lessonsData[0]);
+          if (lessonsData.length > 0) {
+             setSelectedLesson(lessonsData[0]);
+          }
         }
       } catch (error) {
         console.error("Error al cargar el contenido:", error);
@@ -107,7 +101,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     };
     if (params.courseId) fetchCourseContent();
   }, [params.courseId, user]);
-
 
   const handlePayment = async () => {
     if (!user) {
@@ -173,7 +166,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     }
   };
 
-
   const handleTransferRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
@@ -198,7 +190,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         createdAt: serverTimestamp(),
       });
       setTransferRequestSent(true);
-      setShowTransferDetails(false); // Ocultar detalles de transferencia al enviar
+      setShowTransferDetails(false); 
     } catch (error) {
       console.error("Error al crear la solicitud de transferencia:", error);
       alert("No se pudo enviar tu solicitud. Por favor, inténtalo de nuevo.");
@@ -206,7 +198,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
       setIsProcessingPayment(false);
     }
   };
-
 
   const handleVideoProgress = async (event: React.SyntheticEvent<HTMLVideoElement, Event>) => {
     if (!user || !selectedLesson || completedLessons.includes(selectedLesson.id)) return;
@@ -217,7 +208,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         const progressDocRef = doc(db, 'users', user.uid, 'progress', params.courseId);
         await setDoc(progressDocRef, { completedLessons: arrayUnion(selectedLesson.id) }, { merge: true });
         setCompletedLessons(prev => [...prev, selectedLesson.id]);
-        video.removeEventListener('timeupdate', handleVideoProgress as any);
       } catch (error) {
         console.error("Error al guardar el progreso: ", error);
       }
@@ -275,7 +265,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                   </p>
                 )}
 
-
                 {!showTransferDetails && !transferRequestSent && (
                   <>
                   <div className="coupon-section max-w-sm mx-auto my-4">
@@ -324,7 +313,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                       className="w-full bg-surface border border-gray-600 rounded px-3 py-2 text-text-primary focus:outline-none focus:border-primary"
                     />
                  </div>
-                 {/* Aquí podríamos mostrar el precio con descuento si tuviéramos una validación previa */}
                  <p className="text-center text-text-secondary text-lg mb-4">Total a transferir: <strong>${course?.price || 0} MXN</strong> (El descuento se aplicará al confirmar)</p>
 
                 <div className="text-left text-text-secondary space-y-2 mb-6">
@@ -367,22 +355,26 @@ export default function CoursePage({ params }: { params: { courseId: string } })
           <ul>
             {lessons.map((lesson, index) => {
               const isCompleted = completedLessons.includes(lesson.id);
-              const isUnlocked = index === 0 || completedLessons.includes(lessons[index - 1]?.id) || user?.rol === 'docente';
+              
+              // --- CAMBIO APLICADO: isUnlocked SIEMPRE es true ---
+              const isUnlocked = true; 
+
               return (
                 <li key={lesson.id}
                   onClick={() => isUnlocked && isEnrolled && setSelectedLesson(lesson)}
                   className={`p-3 rounded-md mb-2 flex items-center justify-between
-                    ${!isEnrolled || !isUnlocked ? 'bg-background/50 text-text-secondary/50 cursor-not-allowed' : 'transition-colors'}
-                    ${isEnrolled && isUnlocked ? (selectedLesson?.id === lesson.id ? 'bg-primary text-background' : 'hover:bg-background cursor-pointer') : ''}
+                    ${!isEnrolled ? 'bg-background/50 text-text-secondary/50 cursor-not-allowed' : 'transition-colors'}
+                    ${isEnrolled ? (selectedLesson?.id === lesson.id ? 'bg-primary text-background' : 'hover:bg-background cursor-pointer') : ''}
                   `}
                 >
                   <span className="flex-grow mr-2"><span className="font-semibold">Lección {index + 1}:</span> {lesson.title}</span>
                   {isCompleted && <CheckmarkIcon className="w-5 h-5 text-green-400 flex-shrink-0" />}
+                  
+                  {/* ELIMINADO el candado visualmente si isUnlocked es true */}
                   {!isUnlocked && isEnrolled && <span className="text-xs text-gray-500 flex-shrink-0">🔒</span>}
                 </li>
               );
             })}
-             {/* CAMBIO: Muestra un mensaje más claro si no hay lecciones cargadas */}
              {lessons.length === 0 && !loading && (
                  <li className="p-3 text-text-secondary/70">Aún no hay lecciones en este curso.</li>
              )}
