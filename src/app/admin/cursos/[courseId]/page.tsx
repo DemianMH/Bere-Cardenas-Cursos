@@ -8,16 +8,17 @@ import { useRouter } from 'next/navigation';
 import { CheckmarkIcon } from '@/app/components/CheckmarkIcon';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
+// --- CORRECCIÓN AQUÍ: Se agregó createdAt a la interfaz ---
 interface Lesson {
   id: string;
   title: string;
   videoUrl?: string;
   textContent?: string;
   supportMaterialUrl?: string;
-  order?: number;
-  // createdAt can be a Firebase Timestamp-like object (with seconds) or a numeric epoch value
-  createdAt?: { seconds?: number } | number;
+  order?: number; 
+  createdAt?: any; // Propiedad necesaria para el ordenamiento
 }
+
 interface CourseDetails {
   title: string;
   description: string;
@@ -74,12 +75,14 @@ export default function CoursePage({ params }: { params: { courseId: string } })
             ...doc.data() 
         })) as Lesson[];
 
+        // Ordenar localmente
         lessonsData.sort((a, b) => {
             if ((a.order ?? 9999) !== (b.order ?? 9999)) {
                 return (a.order ?? 9999) - (b.order ?? 9999);
             }
-            const aTime = typeof a.createdAt === 'object' ? a.createdAt?.seconds || 0 : a.createdAt || 0;
-            const bTime = typeof b.createdAt === 'object' ? b.createdAt?.seconds || 0 : b.createdAt || 0;
+            // Ahora esto ya no marcará error porque createdAt existe en la interfaz Lesson
+            const aTime = a.createdAt?.seconds || 0;
+            const bTime = b.createdAt?.seconds || 0;
             return aTime - bTime;
         });
         
@@ -91,9 +94,9 @@ export default function CoursePage({ params }: { params: { courseId: string } })
           const userProgress = progressSnap.exists() ? progressSnap.data().completedLessons || [] : [];
           setCompletedLessons(userProgress);
 
-          // Seleccionar la primera lección por defecto si no hay una seleccionada
-          // Ya no forzamos la "primera no completada" para no restringir la navegación
-          setSelectedLesson(lessonsData[0]);
+          if (lessonsData.length > 0) {
+             setSelectedLesson(lessonsData[0]);
+          }
         }
       } catch (error) {
         console.error("Error al cargar el contenido:", error);
@@ -213,7 +216,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         const progressDocRef = doc(db, 'users', user.uid, 'progress', params.courseId);
         await setDoc(progressDocRef, { completedLessons: arrayUnion(selectedLesson.id) }, { merge: true });
         setCompletedLessons(prev => [...prev, selectedLesson.id]);
-        // video.removeEventListener('timeupdate', handleVideoProgress as any); // Opcional: dejar de escuchar si ya se completó
       } catch (error) {
         console.error("Error al guardar el progreso: ", error);
       }
@@ -362,9 +364,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
           <ul>
             {lessons.map((lesson, index) => {
               const isCompleted = completedLessons.includes(lesson.id);
-              // CAMBIO: Aquí eliminamos la lógica secuencial. Ahora siempre es 'true' si estás inscrito.
-              // Originalmente: const isUnlocked = index === 0 || completedLessons.includes(lessons[index - 1]?.id) || user?.rol === 'docente';
-              const isUnlocked = true; // ¡Candados removidos!
+              const isUnlocked = true; 
 
               return (
                 <li key={lesson.id}
@@ -376,7 +376,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                 >
                   <span className="flex-grow mr-2"><span className="font-semibold">Lección {index + 1}:</span> {lesson.title}</span>
                   {isCompleted && <CheckmarkIcon className="w-5 h-5 text-green-400 flex-shrink-0" />}
-                  {/* El candado ya no se renderiza si isUnlocked es true */}
                   {!isUnlocked && isEnrolled && <span className="text-xs text-gray-500 flex-shrink-0">🔒</span>}
                 </li>
               );
