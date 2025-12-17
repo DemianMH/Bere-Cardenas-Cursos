@@ -1,0 +1,10 @@
+[
+  {
+    "origin": [
+      "https://berecardenascosmetologia.com.mx",
+      "http://localhost:3000"
+    ],
+    "method": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+    "maxAgeSeconds": 3600
+  }
+]
