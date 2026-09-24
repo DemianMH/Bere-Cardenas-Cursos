@@ -20,7 +20,7 @@ function FadeCarousel({ images, sectionId }: { images: string[]; sectionId: stri
 }`;
 
   return (
-    <div className="relative w-full aspect-[4/5] sm:aspect-video max-w-xl mx-auto rounded-lg overflow-hidden bg-background border border-primary/20">
+    <div className="relative w-full h-[70vh] max-h-[650px] min-h-[380px] max-w-xl mx-auto rounded-lg overflow-hidden bg-background border border-primary/20">
       <style dangerouslySetInnerHTML={{ __html: keyframes }} />
       {images.map((url, i) => (
         <div
@@ -32,7 +32,7 @@ function FadeCarousel({ images, sectionId }: { images: string[]; sectionId: stri
             opacity: i === 0 ? 1 : 0,
           }}
         >
-          <Image src={url} alt="" fill sizes="600px" className="object-cover" />
+          <Image src={url} alt="" fill sizes="600px" className="object-contain" />
         </div>
       ))}
     </div>

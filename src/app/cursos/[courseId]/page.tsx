@@ -17,6 +17,11 @@ interface CourseDetails {
   resultadosImages?: string[];
   testimoniosImages?: string[];
   alumnasImages?: string[];
+  previewLesson?: {
+    title: string;
+    videoUrl?: string | null;
+    textContent?: string | null;
+  } | null;
 }
 
 async function getCourse(courseId: string): Promise<CourseDetails | null> {

@@ -11,6 +11,7 @@ interface Course {
   title: string;
   description: string;
   published?: boolean;
+  imageUrl?: string;
 }
 
 async function getFeaturedCourses(): Promise<Course[]> {
@@ -85,14 +86,19 @@ export default async function Home() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {courses.map(course => (
-                <div key={course.id} className="bg-background rounded-lg shadow-lg p-6 transform hover:-translate-y-2 transition-transform flex flex-col justify-between">
-                  <div>
+                <div key={course.id} className="bg-background rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-2 transition-transform flex flex-col justify-between">
+                  {course.imageUrl && (
+                    <div className="relative w-full aspect-video">
+                      <Image src={course.imageUrl} alt={course.title} fill sizes="(max-width: 768px) 100vw, 33vw" className="object-cover" />
+                    </div>
+                  )}
+                  <div className="p-6 flex flex-col flex-grow">
                     <h3 className="text-2xl font-bold text-primary mb-2">{course.title}</h3>
                     <p className="text-text-secondary mb-4">{course.description}</p>
+                    <Link href={`/cursos/${course.id}`} className="text-primary font-bold hover:text-text-primary mt-auto">
+                      Ver más
+                    </Link>
                   </div>
-                  <Link href={`/cursos/${course.id}`} className="text-primary font-bold hover:text-text-primary mt-auto">
-                    Ver más
-                  </Link>
                 </div>
               ))}
             </div>

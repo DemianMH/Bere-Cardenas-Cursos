@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { CheckmarkIcon } from '@/app/components/CheckmarkIcon';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import Image from 'next/image';
 
 interface Lesson {
   id: string;
@@ -23,6 +24,12 @@ interface CourseDetails {
   title: string;
   description: string;
   price?: number;
+  imageUrl?: string;
+  previewLesson?: {
+    title: string;
+    videoUrl?: string | null;
+    textContent?: string | null;
+  } | null;
 }
 
 const canPreview = (url: string | undefined): boolean => {
@@ -251,48 +258,69 @@ export default function CourseDetailClient({
     }
   };
 
+  // Para visitantes sin sesión no podemos leer la subcolección de lecciones (reglas de
+  // seguridad), así que la vista previa gratuita usa la copia pública guardada en el curso.
+  const previewLesson = course.previewLesson;
+  const displayLesson: Lesson | null = isEnrolled
+    ? selectedLesson
+    : previewLesson
+      ? { id: '__preview__', title: previewLesson.title, videoUrl: previewLesson.videoUrl || undefined, textContent: previewLesson.textContent || undefined }
+      : null;
+  const canWatchSelected = isEnrolled ? !!selectedLesson : !!previewLesson;
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col lg:flex-row gap-8">
         <main className="w-full lg:w-2/3">
           <div className="bg-surface p-6 rounded-lg shadow-lg border border-primary/20">
+            {course.imageUrl && (
+              <div className="relative w-full aspect-video mb-6 rounded-lg overflow-hidden">
+                <Image src={course.imageUrl} alt={course.title} fill sizes="(max-width: 1024px) 100vw, 66vw" className="object-cover" priority />
+              </div>
+            )}
             <h1 className="text-4xl font-bold text-primary mb-4">{course.title}</h1>
             <p className="text-text-secondary mb-6">{course.description}</p>
 
-            {isEnrolled && selectedLesson ? (
+            {canWatchSelected && displayLesson && (
               <div>
+                {!isEnrolled && (
+                  <span className="inline-block bg-primary/20 text-primary text-xs font-bold px-3 py-1 rounded-full mb-3">
+                    Vista previa gratuita
+                  </span>
+                )}
                 <div className="aspect-video mb-6 bg-background rounded-lg">
-                  <h2 className="text-2xl font-bold text-text-primary mb-4 px-2 pt-2">{selectedLesson.title}</h2>
-                  {selectedLesson.videoUrl ? (
-                    <video key={selectedLesson.id} controls className="w-full h-full rounded-b-lg" src={selectedLesson.videoUrl} preload="metadata" onTimeUpdate={handleVideoProgress} />
+                  <h2 className="text-2xl font-bold text-text-primary mb-4 px-2 pt-2">{displayLesson.title}</h2>
+                  {displayLesson.videoUrl ? (
+                    <video key={displayLesson.id} controls className="w-full h-full rounded-b-lg" src={displayLesson.videoUrl} preload="metadata" onTimeUpdate={handleVideoProgress} />
                   ) : (
                     <div className="p-4 text-text-secondary">
-                      <p>{selectedLesson.textContent || "Contenido de texto no disponible."}</p>
+                      <p>{displayLesson.textContent || "Contenido de texto no disponible."}</p>
                     </div>
                   )}
                 </div>
-                {selectedLesson.textContent && (
+                {isEnrolled && displayLesson.textContent && (
                   <div className="mt-4 p-4 bg-background rounded">
                     <h3 className="text-xl font-semibold text-primary mb-2">Material de Lectura</h3>
-                    <p className="text-text-secondary whitespace-pre-wrap">{selectedLesson.textContent}</p>
+                    <p className="text-text-secondary whitespace-pre-wrap">{displayLesson.textContent}</p>
                   </div>
                 )}
-                {selectedLesson.supportMaterialUrl && (
+                {isEnrolled && displayLesson.supportMaterialUrl && (
                   <div className="mt-4">
-                    {canPreview(selectedLesson.supportMaterialUrl) ? (
-                      <a href={selectedLesson.supportMaterialUrl} target="_blank" rel="noopener noreferrer" className="inline-block bg-primary/20 text-primary font-bold py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors">
+                    {canPreview(displayLesson.supportMaterialUrl) ? (
+                      <a href={displayLesson.supportMaterialUrl} target="_blank" rel="noopener noreferrer" className="inline-block bg-primary/20 text-primary font-bold py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors">
                         Ver Material de Apoyo
                       </a>
                     ) : (
-                      <a href={selectedLesson.supportMaterialUrl} download target="_blank" rel="noopener noreferrer" className="inline-block bg-primary/20 text-primary font-bold py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors">
+                      <a href={displayLesson.supportMaterialUrl} download target="_blank" rel="noopener noreferrer" className="inline-block bg-primary/20 text-primary font-bold py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors">
                         Descargar Material de Apoyo
                       </a>
                     )}
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="bg-background border border-primary/50 p-8 rounded-lg text-center">
+            )}
+            {!isEnrolled && (
+              <div className="bg-background border border-primary/50 p-8 rounded-lg text-center mt-6">
                 <h2 className="text-2xl font-bold text-primary mb-2">Inscríbete para Acceder al Contenido Completo</h2>
                 {course.price && course.price > 0 && (
                   <p className="text-3xl font-bold text-white my-4">
@@ -389,26 +417,37 @@ export default function CourseDetailClient({
         </main>
         <aside className="w-full lg:w-1/3 bg-surface p-4 rounded-lg shadow-lg border border-primary/20 h-fit">
           <h2 className="text-2xl font-bold text-primary mb-4">Temario del Curso</h2>
-          <ul>
-            {lessons.map((lesson, index) => {
-              const isCompleted = completedLessons.includes(lesson.id);
-              return (
-                <li key={lesson.id}
-                  onClick={() => isEnrolled && setSelectedLesson(lesson)}
-                  className={`p-3 rounded-md mb-2 flex items-center justify-between
-                    ${!isEnrolled ? 'bg-background/50 text-text-secondary/50 cursor-not-allowed' : 'transition-colors'}
-                    ${isEnrolled ? (selectedLesson?.id === lesson.id ? 'bg-primary text-background' : 'hover:bg-background cursor-pointer') : ''}
-                  `}
-                >
-                  <span className="flex-grow mr-2"><span className="font-semibold">Lección {index + 1}:</span> {lesson.title}</span>
-                  {isCompleted && <CheckmarkIcon className="w-5 h-5 text-green-400 flex-shrink-0" />}
+          {isEnrolled ? (
+            <ul>
+              {lessons.map((lesson, index) => {
+                const isCompleted = completedLessons.includes(lesson.id);
+                return (
+                  <li key={lesson.id}
+                    onClick={() => setSelectedLesson(lesson)}
+                    className={`p-3 rounded-md mb-2 flex items-center justify-between transition-colors ${selectedLesson?.id === lesson.id ? 'bg-primary text-background' : 'hover:bg-background cursor-pointer'}`}
+                  >
+                    <span className="flex-grow mr-2"><span className="font-semibold">Lección {index + 1}:</span> {lesson.title}</span>
+                    {isCompleted && <CheckmarkIcon className="w-5 h-5 text-green-400 flex-shrink-0" />}
+                  </li>
+                );
+              })}
+              {lessons.length === 0 && (
+                <li className="p-3 text-text-secondary/70">Aún no hay lecciones en este curso.</li>
+              )}
+            </ul>
+          ) : (
+            <ul>
+              {previewLesson && (
+                <li className="p-3 rounded-md mb-2 bg-primary text-background">
+                  <span className="font-semibold">Lección 1:</span> {previewLesson.title}
+                  <span className="ml-2 text-xs font-bold">(Vista previa)</span>
                 </li>
-              );
-            })}
-            {lessons.length === 0 && (
-              <li className="p-3 text-text-secondary/70">Aún no hay lecciones en este curso.</li>
-            )}
-          </ul>
+              )}
+              <li className="p-3 text-text-secondary/70 flex items-center gap-2">
+                🔒 El resto del temario se desbloquea al inscribirte.
+              </li>
+            </ul>
+          )}
         </aside>
       </div>
     </div>

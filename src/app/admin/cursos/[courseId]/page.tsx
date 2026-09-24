@@ -68,11 +68,36 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
       });
 
       setExistingLessons(lessonsData);
+      await syncPreviewLesson(lessonsData);
     } catch (error) {
       console.error("Error cargando el temario:", error);
       setError("No se pudo cargar el temario.");
     } finally {
       setLoadingLessons(false);
+    }
+  };
+
+  // Copia la primera lección publicada al documento del curso (que sí es público),
+  // para que los visitantes sin sesión puedan ver una vista previa gratuita sin
+  // necesitar permisos de lectura sobre la subcolección de lecciones.
+  const syncPreviewLesson = async (allLessons: Lesson[]) => {
+    try {
+      const firstPublished = allLessons
+        .filter((l) => l.published !== false)
+        .sort((a, b) => a.order - b.order)[0];
+
+      const courseDocRef = doc(db, 'courses', params.courseId);
+      await updateDoc(courseDocRef, {
+        previewLesson: firstPublished
+          ? {
+              title: firstPublished.title,
+              videoUrl: firstPublished.videoUrl || null,
+              textContent: firstPublished.textContent || null,
+            }
+          : null,
+      });
+    } catch (error) {
+      console.error('No se pudo sincronizar la vista previa gratuita:', error);
     }
   };
 
