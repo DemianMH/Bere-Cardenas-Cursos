@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import { AiOutlineEye, AiOutlineEyeInvisible } from "react-icons/ai";
@@ -12,17 +12,38 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [sendingReset, setSendingReset] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setResetMessage(null);
     try {
       await signInWithEmailAndPassword(auth, email, password);
       router.push('/'); // <-- Redirige al inicio
     } catch (err: any) {
       setError('El correo electrónico o la contraseña son incorrectos.');
       console.error(err);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setError(null);
+    setResetMessage(null);
+    if (!email.trim()) {
+      setError('Escribe tu correo electrónico arriba y da clic de nuevo en "¿Olvidaste tu contraseña?".');
+      return;
+    }
+    setSendingReset(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setResetMessage('Te enviamos un correo con instrucciones para recuperar tu contraseña. Revisa también tu bandeja de spam.');
+    } catch (err: any) {
+      setResetMessage('Si el correo existe en nuestro sistema, recibirás un enlace para recuperar tu contraseña.');
+    } finally {
+      setSendingReset(false);
     }
   };
 
@@ -59,7 +80,19 @@ export default function LoginPage() {
             </button>
           </div>
 
+          <div className="text-right mb-4 -mt-2">
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              disabled={sendingReset}
+              className="text-xs text-primary hover:underline disabled:opacity-50"
+            >
+              {sendingReset ? 'Enviando...' : '¿Olvidaste tu contraseña?'}
+            </button>
+          </div>
+
           {error && <p className="text-red-500 text-xs italic mb-4">{error}</p>}
+          {resetMessage && <p className="text-green-400 text-xs italic mb-4">{resetMessage}</p>}
           <div className="flex items-center justify-center flex-col">
             <button className="bg-primary hover:opacity-90 text-background font-bold py-2 px-4 rounded-full w-full" type="submit">Entrar</button>
             <p className="text-center text-text-secondary text-xs mt-4">

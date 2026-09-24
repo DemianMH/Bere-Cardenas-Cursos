@@ -1,14 +1,28 @@
 import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
+import { onDocumentDeleted, onDocumentUpdated, onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
 import { defineString } from "firebase-functions/params";
+import { sendEmail, resendApiKey } from "./email";
+import { generateCertificatePdf } from "./certificate";
 
 admin.initializeApp();
 
 const db = admin.firestore();
 
 const mercadopagoAccessToken = defineString("MERCADOPAGO_ACCESS_TOKEN");
+const SITE_URL = "https://berecardenascosmetologia.com.mx";
+
+function extractStoragePathFromUrl(url: string): string | null {
+  const match = url.match(/\/o\/(.+?)\?/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
 
 interface Coupon {
   id?: string;
@@ -257,7 +271,7 @@ export const manageUser = onCall(async (request) => {
   }
 });
 
-export const paymentWebhook = onRequest(async (request, response) => {
+export const paymentWebhook = onRequest({ secrets: [resendApiKey] }, async (request, response) => {
   const paymentId = request.body?.data?.id;
   const paymentType = request.body?.type;
 
@@ -288,6 +302,23 @@ export const paymentWebhook = onRequest(async (request, response) => {
               status: 'approved',
               processedAt: admin.firestore.Timestamp.now()
             }, { merge: true });
+
+            try {
+              const [userRecord, courseSnap] = await Promise.all([
+                admin.auth().getUser(userId),
+                db.collection('courses').doc(courseId).get(),
+              ]);
+              const courseTitle = courseSnap.data()?.title || 'tu curso';
+              if (userRecord.email) {
+                await sendEmail({
+                  to: userRecord.email,
+                  subject: `Ya tienes acceso a "${courseTitle}"`,
+                  html: `<p>¡Gracias por tu compra!</p><p>Ya tienes acceso a <strong>${courseTitle}</strong>.</p><p><a href="${SITE_URL}/login">Iniciar sesión</a></p>`,
+                });
+              }
+            } catch (emailError) {
+              logger.error('No se pudo enviar el correo de acceso tras el pago:', emailError);
+            }
 
           } else {
             logger.error("Referencia externa inválida:", externalReference);
@@ -349,3 +380,141 @@ export const updateLessonOrder = onCall(async (request) => {
     throw new HttpsError('internal', error.message || 'Error interno al actualizar el orden.');
   }
 });
+
+export const deleteCourse = onCall(async (request) => {
+  try {
+    requireDocenteRole(request);
+    const { courseId } = request.data;
+    if (!courseId || typeof courseId !== 'string') {
+      throw new HttpsError('invalid-argument', 'ID de curso inválido.');
+    }
+
+    const courseRef = db.collection('courses').doc(courseId);
+    const courseSnap = await courseRef.get();
+    if (!courseSnap.exists) {
+      throw new HttpsError('not-found', 'El curso ya no existe.');
+    }
+    const courseData = courseSnap.data();
+
+    const lessonsSnapshot = await db.collection(`courses/${courseId}/lessons`).get();
+    const batch = db.batch();
+    lessonsSnapshot.docs.forEach((lessonDoc) => batch.delete(lessonDoc.ref));
+    batch.delete(courseRef);
+    await batch.commit();
+
+    const bucket = admin.storage().bucket();
+    try {
+      await bucket.deleteFiles({ prefix: `courses/${courseId}/` });
+    } catch (storageError) {
+      logger.warn(`No se pudieron borrar todos los archivos de Storage del curso ${courseId}:`, storageError);
+    }
+
+    const coverPath = courseData?.imageUrl ? extractStoragePathFromUrl(courseData.imageUrl) : null;
+    if (coverPath) {
+      await bucket.file(coverPath).delete().catch((err) =>
+        logger.warn(`No se pudo borrar la imagen de portada del curso ${courseId}:`, err)
+      );
+    }
+
+    logger.info(`Curso ${courseId} y su temario (${lessonsSnapshot.size} lecciones) eliminados por ${request.auth!.uid}.`);
+    return { success: true, message: 'Curso eliminado con éxito.' };
+  } catch (error: any) {
+    logger.error('Error al eliminar el curso:', error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError('internal', error.message || 'Error interno al eliminar el curso.');
+  }
+});
+
+// Limpieza de respaldo: si algún curso se borra directamente desde Firestore (fuera de deleteCourse),
+// igual eliminamos su subcolección de lecciones para no dejar datos huérfanos.
+export const onCourseDeletedCleanup = onDocumentDeleted('courses/{courseId}', async (event) => {
+  const { courseId } = event.params;
+  try {
+    const lessonsSnapshot = await db.collection(`courses/${courseId}/lessons`).get();
+    if (lessonsSnapshot.empty) return;
+    const batch = db.batch();
+    lessonsSnapshot.docs.forEach((lessonDoc) => batch.delete(lessonDoc.ref));
+    await batch.commit();
+    logger.info(`Limpieza automática: ${lessonsSnapshot.size} lecciones huérfanas eliminadas del curso ${courseId}.`);
+  } catch (error) {
+    logger.error(`Error en la limpieza automática de lecciones del curso ${courseId}:`, error);
+  }
+});
+
+export const onTransferRequestConfirmed = onDocumentUpdated(
+  { document: 'transferRequests/{requestId}', secrets: [resendApiKey] },
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    if (!before || !after) return;
+    if (before.status === after.status || after.status !== 'confirmed') return;
+
+    try {
+      const userRecord = await admin.auth().getUser(after.userId);
+      if (!userRecord.email) return;
+      const courseTitle = after.courseTitle || 'tu curso';
+      await sendEmail({
+        to: userRecord.email,
+        subject: `Ya tienes acceso a "${courseTitle}"`,
+        html: `<p>¡Gracias por tu pago!</p><p>Confirmamos tu inscripción a <strong>${courseTitle}</strong>.</p><p><a href="${SITE_URL}/login">Iniciar sesión</a></p>`,
+      });
+      logger.info(`Correo de acceso enviado a ${userRecord.email} tras confirmar transferencia.`);
+    } catch (error) {
+      logger.error('Error enviando correo de acceso tras confirmar transferencia:', error);
+    }
+  }
+);
+
+export const onCourseProgressWritten = onDocumentWritten(
+  { document: 'users/{userId}/progress/{courseId}', secrets: [resendApiKey] },
+  async (event) => {
+    const after = event.data?.after;
+    if (!after || !after.exists) return;
+
+    const data = after.data();
+    if (!data || data.certificateSent) return;
+
+    const completedLessons: string[] = data.completedLessons || [];
+    if (completedLessons.length === 0) return;
+
+    const { userId, courseId } = event.params;
+
+    try {
+      const lessonsSnapshot = await db.collection(`courses/${courseId}/lessons`).get();
+      const totalPublishedLessons = lessonsSnapshot.docs.filter((d) => d.data().published !== false).length;
+
+      if (totalPublishedLessons === 0 || completedLessons.length < totalPublishedLessons) return;
+
+      const [userRecord, courseSnap] = await Promise.all([
+        admin.auth().getUser(userId),
+        db.collection('courses').doc(courseId).get(),
+      ]);
+
+      const studentEmail = userRecord.email;
+      if (!studentEmail) {
+        logger.warn(`No se encontró email para el usuario ${userId}; no se pudo enviar la constancia.`);
+        return;
+      }
+      const studentName = userRecord.displayName || studentEmail;
+      const courseTitle = courseSnap.data()?.title || 'el curso';
+
+      const certificateBuffer = await generateCertificatePdf({
+        studentName,
+        courseTitle,
+        date: new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }),
+      });
+
+      await sendEmail({
+        to: studentEmail,
+        subject: `Tu constancia de "${courseTitle}"`,
+        html: `<p>¡Felicidades, ${studentName}!</p><p>Has completado el curso <strong>${courseTitle}</strong>. Adjunto encontrarás tu constancia de finalización.</p>`,
+        attachments: [{ filename: 'constancia.pdf', content: certificateBuffer }],
+      });
+
+      await after.ref.set({ certificateSent: true }, { merge: true });
+      logger.info(`Constancia enviada a ${studentEmail} por completar el curso ${courseId}.`);
+    } catch (error) {
+      logger.error(`Error generando/enviando la constancia para ${userId}/${courseId}:`, error);
+    }
+  }
+);

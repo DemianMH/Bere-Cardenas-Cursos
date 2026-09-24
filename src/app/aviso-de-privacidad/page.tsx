@@ -1,3 +1,12 @@
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Aviso de Privacidad',
+  description: 'Aviso de privacidad de Bere Cárdenas Cosmetología Integral: cómo protegemos tus datos personales.',
+  alternates: { canonical: '/aviso-de-privacidad' },
+  robots: { index: false, follow: true },
+};
+
 export default function PrivacidadPage() {
   return (
     <div>

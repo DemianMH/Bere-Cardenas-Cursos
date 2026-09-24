@@ -1,4 +1,12 @@
 import Image from 'next/image';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Acerca de Bere Cárdenas',
+  description: 'Conoce a Bere Cárdenas: abogada y cosmetóloga cosmiatra con más de 10 años de experiencia, formando especialistas en estética profesional con respaldo legal y científico.',
+  alternates: { canonical: '/acerca-de' },
+};
+
 export default function AcercaDePage() {
   return (
     <div className="bg-surface py-16">

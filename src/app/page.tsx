@@ -1,40 +1,36 @@
-"use client";
-
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { collection, getDocs, orderBy, query, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Image from 'next/image';
 
+// Refresca la lista de cursos destacados cada minuto sin necesitar un nuevo despliegue
+export const revalidate = 60;
+
 interface Course {
   id: string;
   title: string;
   description: string;
+  published?: boolean;
 }
 
-export default function Home() {
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [loading, setLoading] = useState(true);
+async function getFeaturedCourses(): Promise<Course[]> {
+  try {
+    const coursesCollection = collection(db, 'courses');
+    const q = query(coursesCollection, orderBy('order'), limit(6));
+    const querySnapshot = await getDocs(q);
+    const coursesData = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Course[];
+    return coursesData.filter(c => c.published !== false).slice(0, 3);
+  } catch (error) {
+    console.error("Error al cargar los cursos: ", error);
+    return [];
+  }
+}
 
-  useEffect(() => {
-    const fetchCourses = async () => {
-      try {
-        const coursesCollection = collection(db, 'courses');
-        const q = query(coursesCollection, orderBy('order'), limit(3));
-        const querySnapshot = await getDocs(q);
-        const coursesData = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Course[];
-        setCourses(coursesData);
-      } catch (error) {
-        console.error("Error al cargar los cursos: ", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchCourses();
-  }, []);
+export default async function Home() {
+  const courses = await getFeaturedCourses();
 
   return (
     <div className="bg-background">
@@ -84,8 +80,8 @@ export default function Home() {
       <section id="cursos" className="bg-surface py-16">
         <div className="container mx-auto px-6 text-center">
           <h2 className="text-3xl font-bold text-text-primary mb-8">Nuestros Cursos Destacados</h2>
-          {loading ? (
-            <p>Cargando cursos...</p>
+          {courses.length === 0 ? (
+            <p className="text-text-secondary">Muy pronto anunciaremos nuevos cursos.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {courses.map(course => (

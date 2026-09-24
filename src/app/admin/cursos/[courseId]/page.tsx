@@ -16,6 +16,7 @@ interface Lesson {
   type?: 'video' | 'text';
   createdAt: any;
   order: number; // Campo vital para el ordenamiento
+  published?: boolean;
 }
 
 export default function AdminEditLessonPage({ params }: { params: { courseId: string } }) {
@@ -31,6 +32,7 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
   
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [lessonPublished, setLessonPublished] = useState(true);
 
   // Referencias para el Drag and Drop
   const dragItem = useRef<number | null>(null); 
@@ -84,6 +86,7 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
     setTextContent(lesson.textContent || '');
     setVideoFile(null);
     setSupportFile(null);
+    setLessonPublished(lesson.published !== false);
     if (videoInputRef.current) videoInputRef.current.value = "";
     if (supportInputRef.current) supportInputRef.current.value = "";
   };
@@ -94,6 +97,7 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
     setTextContent('');
     setVideoFile(null);
     setSupportFile(null);
+    setLessonPublished(true);
     setError(null);
     if (videoInputRef.current) videoInputRef.current.value = "";
     if (supportInputRef.current) supportInputRef.current.value = "";
@@ -148,6 +152,7 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
         type: videoFile || videoUrl ? 'video' : 'text',
         // Si editamos, mantenemos el orden. Si es nueva, usamos el calculado.
         order: editingLesson ? editingLesson.order : nextOrder,
+        published: lessonPublished,
       };
 
       if (editingLesson) {
@@ -268,9 +273,12 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
                   onDragOver={(e) => e.preventDefault()}
                   className="flex justify-between items-center bg-background p-3 rounded-md cursor-grab active:cursor-grabbing border border-gray-700 hover:border-primary/50 transition-colors"
                 >
-                  <span className="text-text-secondary">
-                    <strong className="mr-2 text-primary">{index + 1}.</strong> 
+                  <span className="text-text-secondary flex items-center gap-2">
+                    <strong className="mr-2 text-primary">{index + 1}.</strong>
                     {lesson.title}
+                    {lesson.published === false && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-yellow-600/20 text-yellow-300">Oculta</span>
+                    )}
                   </span>
                   <div className="flex gap-3">
                     <button type="button" onClick={() => handleSelectForEdit(lesson)} className="text-xs text-blue-400 hover:underline">Editar</button>
@@ -299,10 +307,20 @@ export default function AdminEditLessonPage({ params }: { params: { courseId: st
             <div className="mb-6">
                 <label className="block text-text-secondary font-bold mb-2" htmlFor="videoFile">Archivo de Video (Opcional) {editingLesson?.videoUrl && "(Ya existe un video. Subir uno nuevo lo reemplazará)"}</label>
                 <input ref={videoInputRef} id="videoFile" type="file" accept="video/*" onChange={(e) => setVideoFile(e.target.files ? e.target.files[0] : null)} className="block w-full text-sm text-text-secondary file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-primary file:text-background file:font-semibold cursor-pointer" />
+                <p className="text-xs text-text-secondary/70 mt-2">
+                  Para mejor calidad y compatibilidad, exporta el video en: <strong>MP4 (H.264/AAC)</strong>, 1920×1080, 30 FPS, bitrate de 5–8 Mbps (máx. 10 Mbps), SDR / Rec.709.
+                </p>
             </div>
             <div className="mb-6">
                 <label className="block text-text-secondary font-bold mb-2" htmlFor="supportFile">Material de Apoyo (PDF, etc.) {editingLesson?.supportMaterialUrl && "(Ya existe un archivo. Subir uno nuevo lo reemplazará)"}</label>
                 <input ref={supportInputRef} id="supportFile" type="file" accept=".pdf,.doc,.docx,.zip,.jpg,.png" onChange={(e) => setSupportFile(e.target.files ? e.target.files[0] : null)} className="block w-full text-sm text-text-secondary file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-primary file:text-background file:font-semibold cursor-pointer" />
+            </div>
+            <div className="mb-6 flex items-center gap-3 bg-background border border-gray-700 rounded p-3">
+              <input id="lessonPublished" type="checkbox" checked={lessonPublished} onChange={(e) => setLessonPublished(e.target.checked)} className="w-5 h-5 accent-primary" />
+              <label htmlFor="lessonPublished" className="text-text-secondary">
+                <span className="font-bold text-text-primary block">Lección publicada (visible para alumnos)</span>
+                Desmarca para preparar esta lección oculta y publicarla después.
+              </label>
             </div>
             {error && <p className="text-red-500 text-xs italic mb-4">{error}</p>}
             <div className="flex gap-4 mt-4">

@@ -1,3 +1,11 @@
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Contacto',
+  description: '¿Dudas sobre nuestros cursos de cosmetología y cosmiatría? Contáctanos por WhatsApp, Instagram o Facebook.',
+  alternates: { canonical: '/contacto' },
+};
+
 export default function ContactoPage() {
   return (
     <div className="bg-surface py-16">

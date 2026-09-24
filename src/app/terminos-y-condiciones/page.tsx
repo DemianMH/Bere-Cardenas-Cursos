@@ -1,3 +1,12 @@
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'Términos y Condiciones',
+  description: 'Términos y condiciones de uso de los cursos y servicios de Bere Cárdenas Cosmetología Integral.',
+  alternates: { canonical: '/terminos-y-condiciones' },
+  robots: { index: false, follow: true },
+};
+
 export default function TerminosPage() {
   return (
     <div>
