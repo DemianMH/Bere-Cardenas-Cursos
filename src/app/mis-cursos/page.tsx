@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { collection, getDocs, query, where, documentId } from 'firebase/firestore';
+import { collection, getDocs, query, where, documentId, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
@@ -11,6 +11,7 @@ interface Course {
   id: string;
   title: string;
   description: string;
+  certificateUrl?: string | null;
 }
 
 export default function MisCursosPage() {
@@ -29,7 +30,18 @@ export default function MisCursosPage() {
         try {
           const q = query(collection(db, 'courses'), where(documentId(), 'in', user.cursosInscritos));
           const querySnapshot = await getDocs(q);
-          const coursesData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Course[];
+          const coursesData = await Promise.all(
+            querySnapshot.docs.map(async (courseDoc) => {
+              let certificateUrl: string | null = null;
+              try {
+                const progressSnap = await getDoc(doc(db, 'users', user.uid, 'progress', courseDoc.id));
+                certificateUrl = progressSnap.exists() ? progressSnap.data().certificateUrl || null : null;
+              } catch (error) {
+                console.error('Error al revisar la constancia:', error);
+              }
+              return { id: courseDoc.id, ...courseDoc.data(), certificateUrl } as Course;
+            })
+          );
           setEnrolledCourses(coursesData);
         } catch (error) {
           console.error("Error al cargar cursos:", error);
@@ -41,7 +53,7 @@ export default function MisCursosPage() {
   }, [user, authLoading, router]);
 
   if (authLoading || loading) return <p className="text-center mt-12 text-lg text-text-secondary">Cargando tus cursos...</p>;
-  
+
   return (
     <div className="container mx-auto px-6 py-16">
       <h1 className="text-4xl text-center font-bold text-primary mb-12">Mis Cursos</h1>
@@ -49,13 +61,23 @@ export default function MisCursosPage() {
         {enrolledCourses.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {enrolledCourses.map(course => (
-              <Link key={course.id} href={`/cursos/${course.id}`}>
-                <div className="bg-surface p-6 rounded-lg shadow-lg border border-transparent hover:border-primary transition-all cursor-pointer h-full">
+              <div key={course.id} className="bg-surface p-6 rounded-lg shadow-lg border border-transparent hover:border-primary transition-all h-full flex flex-col">
+                <Link href={`/cursos/${course.id}`} className="flex-grow">
                   <h2 className="text-2xl font-bold text-primary mb-2">{course.title}</h2>
                   <p className="text-text-secondary mb-4">{course.description}</p>
                   <span className="text-primary font-bold">Continuar aprendiendo →</span>
-                </div>
-              </Link>
+                </Link>
+                {course.certificateUrl && (
+                  <a
+                    href={course.certificateUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 inline-block text-center bg-primary/20 text-primary font-bold py-2 px-4 rounded-full hover:bg-primary hover:text-background transition-colors"
+                  >
+                    🎓 Descargar Constancia
+                  </a>
+                )}
+              </div>
             ))}
           </div>
         ) : (

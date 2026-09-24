@@ -6,6 +6,7 @@ import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
 import { defineString } from "firebase-functions/params";
 import { sendEmail, resendApiKey } from "./email";
 import { generateCertificatePdf } from "./certificate";
+import { randomUUID } from "crypto";
 
 admin.initializeApp();
 
@@ -491,11 +492,7 @@ export const onCourseProgressWritten = onDocumentWritten(
       ]);
 
       const studentEmail = userRecord.email;
-      if (!studentEmail) {
-        logger.warn(`No se encontró email para el usuario ${userId}; no se pudo enviar la constancia.`);
-        return;
-      }
-      const studentName = userRecord.displayName || studentEmail;
+      const studentName = userRecord.displayName || studentEmail || 'Alumno/a';
       const courseTitle = courseSnap.data()?.title || 'el curso';
 
       const certificateBuffer = await generateCertificatePdf({
@@ -504,17 +501,32 @@ export const onCourseProgressWritten = onDocumentWritten(
         date: new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }),
       });
 
-      await sendEmail({
-        to: studentEmail,
-        subject: `Tu constancia de "${courseTitle}"`,
-        html: `<p>¡Felicidades, ${studentName}!</p><p>Has completado el curso <strong>${courseTitle}</strong>. Adjunto encontrarás tu constancia de finalización.</p>`,
-        attachments: [{ filename: 'constancia.pdf', content: certificateBuffer }],
+      // Se guarda en Storage para poder descargarse desde el sitio, sin depender
+      // de que el correo (Resend) esté configurado.
+      const bucket = admin.storage().bucket();
+      const certPath = `certificates/${userId}/${courseId}.pdf`;
+      const certToken = randomUUID();
+      await bucket.file(certPath).save(certificateBuffer, {
+        metadata: {
+          contentType: 'application/pdf',
+          metadata: { firebaseStorageDownloadTokens: certToken },
+        },
       });
+      const certificateUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(certPath)}?alt=media&token=${certToken}`;
 
-      await after.ref.set({ certificateSent: true }, { merge: true });
-      logger.info(`Constancia enviada a ${studentEmail} por completar el curso ${courseId}.`);
+      await after.ref.set({ certificateSent: true, certificateUrl }, { merge: true });
+      logger.info(`Constancia generada y disponible para descarga: ${certificateUrl}`);
+
+      if (studentEmail) {
+        await sendEmail({
+          to: studentEmail,
+          subject: `Tu constancia de "${courseTitle}"`,
+          html: `<p>¡Felicidades, ${studentName}!</p><p>Has completado el curso <strong>${courseTitle}</strong>. Adjunto encontrarás tu constancia de finalización. También puedes descargarla desde "Mis Cursos" en el sitio.</p>`,
+          attachments: [{ filename: 'constancia.pdf', content: certificateBuffer }],
+        });
+      }
     } catch (error) {
-      logger.error(`Error generando/enviando la constancia para ${userId}/${courseId}:`, error);
+      logger.error(`Error generando la constancia para ${userId}/${courseId}:`, error);
     }
   }
 );
