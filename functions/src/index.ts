@@ -4,7 +4,7 @@ import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
 import { defineString } from "firebase-functions/params";
-import { sendEmail, resendApiKey } from "./email";
+import { sendEmail, renderBrandedEmail, resendApiKey } from "./email";
 import { generateCertificatePdf } from "./certificate";
 import { randomUUID } from "crypto";
 
@@ -313,8 +313,13 @@ export const paymentWebhook = onRequest({ secrets: [resendApiKey] }, async (requ
               if (userRecord.email) {
                 await sendEmail({
                   to: userRecord.email,
-                  subject: `Ya tienes acceso a "${courseTitle}"`,
-                  html: `<p>¡Gracias por tu compra!</p><p>Ya tienes acceso a <strong>${courseTitle}</strong>.</p><p><a href="${SITE_URL}/login">Iniciar sesión</a></p>`,
+                  subject: `Ya tienes acceso a "${courseTitle}" 🎉`,
+                  html: renderBrandedEmail({
+                    heading: `¡Bienvenida a ${courseTitle}!`,
+                    bodyHtml: `<p>¡Gracias por tu compra! Tu pago fue confirmado y ya tienes acceso completo al curso.</p><p>Inicia sesión cuando quieras para comenzar a aprender a tu ritmo.</p>`,
+                    ctaText: 'Iniciar Sesión',
+                    ctaUrl: `${SITE_URL}/login`,
+                  }),
                 });
               }
             } catch (emailError) {
@@ -456,8 +461,13 @@ export const onTransferRequestConfirmed = onDocumentUpdated(
       const courseTitle = after.courseTitle || 'tu curso';
       await sendEmail({
         to: userRecord.email,
-        subject: `Ya tienes acceso a "${courseTitle}"`,
-        html: `<p>¡Gracias por tu pago!</p><p>Confirmamos tu inscripción a <strong>${courseTitle}</strong>.</p><p><a href="${SITE_URL}/login">Iniciar sesión</a></p>`,
+        subject: `Ya tienes acceso a "${courseTitle}" 🎉`,
+        html: renderBrandedEmail({
+          heading: `¡Bienvenida a ${courseTitle}!`,
+          bodyHtml: `<p>¡Gracias por tu pago! Confirmamos tu inscripción y ya tienes acceso completo al curso.</p><p>Inicia sesión cuando quieras para comenzar a aprender a tu ritmo.</p>`,
+          ctaText: 'Iniciar Sesión',
+          ctaUrl: `${SITE_URL}/login`,
+        }),
       });
       logger.info(`Correo de acceso enviado a ${userRecord.email} tras confirmar transferencia.`);
     } catch (error) {
@@ -491,15 +501,18 @@ export const onCourseProgressWritten = onDocumentWritten(
         db.collection('courses').doc(courseId).get(),
       ]);
 
+      const courseData = courseSnap.data();
+      const templateUrl: string | undefined = courseData?.certificateTemplateUrl;
+      if (!templateUrl) {
+        logger.warn(`El curso ${courseId} no tiene plantilla de constancia configurada (certificateTemplateUrl); no se generó constancia.`);
+        return;
+      }
+
       const studentEmail = userRecord.email;
       const studentName = userRecord.displayName || studentEmail || 'Alumno/a';
-      const courseTitle = courseSnap.data()?.title || 'el curso';
+      const courseTitle = courseData?.title || 'el curso';
 
-      const certificateBuffer = await generateCertificatePdf({
-        studentName,
-        courseTitle,
-        date: new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' }),
-      });
+      const certificateBuffer = await generateCertificatePdf({ studentName, templateUrl });
 
       // Se guarda en Storage para poder descargarse desde el sitio, sin depender
       // de que el correo (Resend) esté configurado.
@@ -520,8 +533,13 @@ export const onCourseProgressWritten = onDocumentWritten(
       if (studentEmail) {
         await sendEmail({
           to: studentEmail,
-          subject: `Tu constancia de "${courseTitle}"`,
-          html: `<p>¡Felicidades, ${studentName}!</p><p>Has completado el curso <strong>${courseTitle}</strong>. Adjunto encontrarás tu constancia de finalización. También puedes descargarla desde "Mis Cursos" en el sitio.</p>`,
+          subject: `¡Felicidades! Completaste "${courseTitle}" 🎓`,
+          html: renderBrandedEmail({
+            heading: `¡Felicidades, ${studentName}! 🎉`,
+            bodyHtml: `<p>Completaste exitosamente <strong>${courseTitle}</strong>. Tu constancia de finalización está adjunta en este correo, lista para descargar e imprimir.</p><p>También puedes descargarla cuando quieras desde tu cuenta, en la sección "Mis Cursos".</p>`,
+            ctaText: 'Ver Mis Cursos',
+            ctaUrl: `${SITE_URL}/mis-cursos`,
+          }),
           attachments: [{ filename: 'constancia.pdf', content: certificateBuffer }],
         });
       }

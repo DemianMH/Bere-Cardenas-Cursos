@@ -6,6 +6,7 @@ import { db, storage } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import GalleryEditor from './GalleryEditor';
+import CertificateTemplateUploader from './CertificateTemplateUploader';
 
 export default function EditarCursoPage({ params }: { params: { courseId: string } }) {
   const [title, setTitle] = useState('');
@@ -17,6 +18,7 @@ export default function EditarCursoPage({ params }: { params: { courseId: string
   const [resultadosImages, setResultadosImages] = useState<string[]>([]);
   const [testimoniosImages, setTestimoniosImages] = useState<string[]>([]);
   const [alumnasImages, setAlumnasImages] = useState<string[]>([]);
+  const [certificateTemplateUrl, setCertificateTemplateUrl] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -36,6 +38,7 @@ export default function EditarCursoPage({ params }: { params: { courseId: string
           setResultadosImages(courseData.resultadosImages || []);
           setTestimoniosImages(courseData.testimoniosImages || []);
           setAlumnasImages(courseData.alumnasImages || []);
+          setCertificateTemplateUrl(courseData.certificateTemplateUrl || null);
         } else {
           setError('Este curso no existe.');
         }
@@ -180,6 +183,11 @@ export default function EditarCursoPage({ params }: { params: { courseId: string
           helpText="Fotos grupales de generaciones anteriores. Se muestran en una franja que se desliza sola (en sentido contrario a testimonios)."
           images={alumnasImages}
           onChange={setAlumnasImages}
+        />
+        <CertificateTemplateUploader
+          courseId={params.courseId}
+          templateUrl={certificateTemplateUrl}
+          onChange={setCertificateTemplateUrl}
         />
       </div>
     </div>
